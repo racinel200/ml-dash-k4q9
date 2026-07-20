@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Massage &amp; Lymphatic by Kaitlyn — Sales Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{--sage:#5a7a5e;--sage-d:#2f5233;--cream:#faf7f0;--card:#ffffff;--ink:#2c342d;--muted:#7c877e;--gold:#c9a86a;--rose:#c97b6a;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Georgia','Times New Roman',serif;background:var(--cream);color:var(--ink);padding:32px 20px;}
+  .wrap{max-width:1000px;margin:0 auto}
+  header{text-align:center;margin-bottom:28px}
+  header h1{font-size:26px;letter-spacing:2px;color:var(--sage-d);text-transform:uppercase}
+  header p{color:var(--muted);font-size:14px;margin-top:6px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:26px}
+  .card{background:var(--card);border-radius:14px;padding:20px 22px;box-shadow:0 2px 10px rgba(47,82,51,.08);text-align:center}
+  .card .num{font-size:30px;font-weight:bold;color:var(--sage-d)}
+  .card .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px}
+  .card.warn .num{color:var(--rose)}
+  .panel{background:var(--card);border-radius:14px;padding:24px;box-shadow:0 2px 10px rgba(47,82,51,.08);margin-bottom:22px}
+  .panel h2{font-size:16px;color:var(--sage-d);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+  .panel .sub{font-size:13px;color:var(--muted);margin-bottom:16px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+  @media(max-width:760px){.row{grid-template-columns:1fr}}
+  .chart-box{position:relative;height:300px}
+  .chart-box.tall{height:340px}
+  .takeaways{background:#eef3ee;border-left:4px solid var(--sage);border-radius:10px;padding:18px 22px}
+  .takeaways h2{font-size:15px;color:var(--sage-d);margin-bottom:10px;letter-spacing:1px;text-transform:uppercase}
+  .takeaways p{font-size:14.5px;line-height:1.65;margin-bottom:10px}
+  .takeaways p:last-child{margin-bottom:0}
+  .takeaways b{color:var(--sage-d)}
+  footer{text-align:center;color:var(--muted);font-size:12px;margin-top:24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Massage &amp; Lymphatic by Kaitlyn</h1>
+    <p>Sales at a Glance &middot; October 2025 &ndash; June 2026 &middot; from your Wix booking site</p>
+  </header>
+
+  <div class="cards">
+    <div class="card"><div class="num">$12,236</div><div class="lbl">Total sales</div></div>
+    <div class="card"><div class="num">$10,896</div><div class="lbl">Money collected</div></div>
+    <div class="card warn"><div class="num">$1,340</div><div class="lbl">Still to collect</div></div>
+    <div class="card"><div class="num">120</div><div class="lbl">Orders &middot; $102 avg</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Sales by month</h2>
+    <div class="sub">Green = collected &middot; Terracotta = booked but not yet paid (usually pay-at-appointment)</div>
+    <div class="chart-box"><canvas id="monthly"></canvas></div>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <h2>Where the money comes from</h2>
+      <div class="sub">Share of all sales by type of service</div>
+      <div class="chart-box"><canvas id="pie"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Top services</h2>
+      <div class="sub">Total sales per service, best first</div>
+      <div class="chart-box tall"><canvas id="services"></canvas></div>
+    </div>
+  </div>
+
+  <div class="takeaways">
+    <h2>What this means, in plain English</h2>
+    <p><b>Lymphatic work is the business.</b> Lymphatic and post-op care (sessions + packages) brought in <b>64&cent; of every dollar</b> — $7,840 of $12,236. The packages sell: five 6-session packages and one 12-session recovery package.</p>
+    <p><b>January was the best month ($3,830)</b> because several clients bought packages. Months without a package sale drop to ~$1,000. Selling <b>one package a month</b> is the single easiest way to smooth income.</p>
+    <p><b>June needs attention.</b> It was the slowest month since opening ($910), and $545 of it hasn&rsquo;t been collected yet — 5 of 10 June bookings chose &ldquo;pay at appointment.&rdquo; Worth double-checking those were paid in person.</p>
+    <p><b>$1,340 total is booked but unpaid.</b> Some of this may already be paid in cash and just never marked paid in Wix — 10 minutes of cleanup will show the true number.</p>
+  </div>
+
+  <footer>Prepared July 20, 2026 &middot; Source: Wix orders (122 orders; 2 canceled orders excluded)</footer>
+</div>
+
+<script>
+const months=['Oct 25','Nov 25','Dec 25','Jan 26','Feb 26','Mar 26','Apr 26','May 26','Jun 26'];
+const paid=[465,320,245,3665,1010.5,880,2400,1545,365];
+const unpaid=[100,0,0,165,115,325,0,90,545];
+const SAGE='#5a7a5e',SAGED='#2f5233',GOLD='#c9a86a',ROSE='#c97b6a',MIST='#a8bfaa',CLAY='#8d6e63';
+Chart.defaults.font.family="Georgia, serif";
+Chart.defaults.color='#5c665e';
+const money=v=>'$'+v.toLocaleString();
+
+new Chart(document.getElementById('monthly'),{type:'bar',
+ data:{labels:months,datasets:[
+  {label:'Collected',data:paid,backgroundColor:SAGE,borderRadius:6,stack:'s'},
+  {label:'Not yet paid',data:unpaid,backgroundColor:ROSE,borderRadius:6,stack:'s'}]},
+ options:{responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.parsed.y)}}},
+  scales:{x:{grid:{display:false},stacked:true},y:{stacked:true,ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}}}}});
+
+new Chart(document.getElementById('pie'),{type:'doughnut',
+ data:{labels:['Lymphatic & post-op care','Custom massage','Packs & memberships','Gift cards & other'],
+  datasets:[{data:[7840.5,2085,1860,450],backgroundColor:[SAGED,GOLD,MIST,CLAY],borderColor:'#fff',borderWidth:3}]},
+ options:{responsive:true,maintainAspectRatio:false,cutout:'55%',
+  plugins:{legend:{position:'bottom'},
+   tooltip:{callbacks:{label:c=>{const t=12235.5;return c.label+': '+money(c.parsed)+' ('+Math.round(c.parsed/t*100)+'%)'}}}}}});
+
+new Chart(document.getElementById('services'),{type:'bar',
+ data:{labels:['6-Session MLD Package','Pre/Post-Op Lymphatic','Lymphatic Drainage','12-Session Post-Op Pkg','6 Session Massage Pack','12-Month Membership','Massage 60 min','Massage 90 min','Gift cards','Other'],
+  datasets:[{data:[2600,2495.5,1495,1250,960,900,845,825,310,555],
+   backgroundColor:[SAGED,SAGE,SAGE,SAGED,GOLD,GOLD,MIST,MIST,CLAY,'#c9c2b2'],borderRadius:6}]},
+ options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+  plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money(c.parsed.x)}}},
+  scales:{x:{ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}},y:{grid:{display:false}}}}});
+</script>
+</body>
+</html>
