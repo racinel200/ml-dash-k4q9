@@ -57,8 +57,23 @@
   #status.error{color:var(--rose)}
   #content{display:none}
   footer{text-align:center;color:var(--muted);font-size:12px;margin-top:24px}
-  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--sage-d);color:#fff;border-radius:20px;padding:10px 24px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--sage-d);color:#fff;border-radius:20px;padding:10px 24px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:60}
   .toast.show{opacity:1}
+  .fab{position:fixed;bottom:26px;right:26px;width:58px;height:58px;border-radius:50%;background:var(--sage-d);color:#fff;border:none;font-size:30px;line-height:1;cursor:pointer;box-shadow:0 4px 14px rgba(47,82,51,.35);z-index:40;font-family:inherit}
+  .fab:hover{background:var(--sage)}
+  .overlay{position:fixed;inset:0;background:rgba(44,52,45,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+  .overlay.show{display:flex}
+  .modal{background:var(--card);border-radius:16px;padding:26px;max-width:460px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+  .modal h2{font-size:16px;color:var(--sage-d);letter-spacing:1px;text-transform:uppercase;margin-bottom:14px}
+  .modal label{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin:14px 0 6px}
+  .modal input[type=text]{width:100%;font-family:inherit;font-size:15px;padding:11px 12px;border:1px solid #d8e0d8;border-radius:10px;background:#fdfcf9}
+  .pick{display:flex;flex-wrap:wrap;gap:6px}
+  .pick button{font-family:inherit;background:#f4f1e8;border:1px solid #e4e0d2;color:var(--muted);border-radius:14px;padding:7px 14px;font-size:13px;cursor:pointer}
+  .pick button.active{background:var(--sage-d);border-color:var(--sage-d);color:#fff}
+  .pick button.p1.active{background:var(--rose);border-color:var(--rose)}
+  .pick button.p2.active{background:var(--gold);border-color:var(--gold)}
+  .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+  .modal .cancel{font-family:inherit;background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;text-decoration:underline}
 </style>
 </head>
 <body>
@@ -99,6 +114,36 @@
     <footer id="footer"></footer>
   </div>
 </div>
+<button class="fab" id="fab" title="Add a to-do">+</button>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2>Add a to-do</h2>
+    <label>What needs doing?</label>
+    <input type="text" id="newtask" maxlength="140" placeholder="e.g. Order more massage oil">
+    <label>Priority</label>
+    <div class="pick" id="prioPick">
+      <button class="p1" data-p="1">Do first</button>
+      <button class="p2 active" data-p="2">This week</button>
+      <button class="p3" data-p="3">When you can</button>
+    </div>
+    <label>Category</label>
+    <div class="pick" id="catPick">
+      <button data-c="Clients & Rebooking">Clients &amp; Rebooking</button>
+      <button data-c="Reviews">Reviews</button>
+      <button data-c="Marketing">Marketing</button>
+      <button data-c="Money">Money</button>
+      <button data-c="Outreach">Outreach</button>
+      <button data-c="Studio">Studio</button>
+      <button data-c="General" class="active">General</button>
+    </div>
+    <div class="actions">
+      <button class="cancel" id="modalCancel">Cancel</button>
+      <button class="send" id="modalAdd">Add it</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -225,6 +270,40 @@ document.getElementById('sendbtn').addEventListener('click', async ()=>{
   }catch(e){ toast('Couldn’t send — try again.'); }
   btn.disabled=false;
 });
+// add-task modal
+const overlay=document.getElementById('overlay');
+let NEWP='2', NEWC='General';
+document.getElementById('fab').addEventListener('click',()=>{
+  overlay.classList.add('show');
+  setTimeout(()=>document.getElementById('newtask').focus(),50);
+});
+document.getElementById('modalCancel').addEventListener('click',()=>overlay.classList.remove('show'));
+overlay.addEventListener('click',e=>{ if(e.target===overlay) overlay.classList.remove('show'); });
+document.querySelectorAll('#prioPick button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#prioPick button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); NEWP=b.dataset.p;
+}));
+document.querySelectorAll('#catPick button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('#catPick button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); NEWC=b.dataset.c;
+}));
+document.getElementById('modalAdd').addEventListener('click', async ()=>{
+  const inp=document.getElementById('newtask');
+  const text=inp.value.trim(); if(!text){ inp.focus(); return; }
+  const btn=document.getElementById('modalAdd'); btn.disabled=true;
+  const full='[P'+NEWP+']['+NEWC+'] '+text;
+  try{
+    const r=await call({action:'add',task:full,by:'kaitlyn'});
+    if(r.error) throw 0;
+    DATA.tasks.push({id:r.id||('tmp'+Date.now()),added:new Date().toISOString(),task:full,status:'open',doneDate:'',by:'kaitlyn'});
+    inp.value=''; overlay.classList.remove('show'); TAB='todo';
+    document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab==='todo'));
+    draw(); toast('Added to your list.');
+  }catch(e){ toast('Couldn’t add — try again.'); }
+  btn.disabled=false;
+});
+document.getElementById('newtask').addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('modalAdd').click(); });
+
 refresh();
 setInterval(refresh, 5*60*1000);
 </script>
