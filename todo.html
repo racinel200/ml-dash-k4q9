@@ -164,6 +164,23 @@ const CONFIG={
   projectId:''
 };
 const CONFIG_URL='https://docs.google.com/spreadsheets/d/1IQeC8UFB_tiNjWWit4kefHqqq_-i_2ZSdIJ8YDDEElM/gviz/tq?tqx=out:csv&sheet=Config';
+function parseCSV(text){
+  const rows=[];let row=[],cur='',inQ=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(inQ){
+      if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else inQ=false; }
+      else cur+=ch;
+    } else {
+      if(ch==='"') inQ=true;
+      else if(ch===','){row.push(cur);cur='';}
+      else if(ch==='\n'){row.push(cur.replace(/\r$/,''));rows.push(row);row=[];cur='';}
+      else cur+=ch;
+    }
+  }
+  if(cur!==''||row.length){row.push(cur.replace(/\r$/,''));rows.push(row);}
+  return rows;
+}
 async function loadConfig(){
   try{
     const text=await fetch(CONFIG_URL).then(r=>r.text());
