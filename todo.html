@@ -156,9 +156,31 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'
 const fmtDate=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,10):d.toLocaleDateString('en',{month:'short',day:'numeric'});};
 const fmtDT=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,16):d.toLocaleDateString('en',{month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en',{hour:'numeric',minute:'2-digit'});};
 const PRIO_LABEL={1:'Do first',2:'This week',3:'When you can'};
+
+// Config: live values come from the "Config" tab of the Ops Board spreadsheet
+// (key/value rows; edit the cell, no redeploy needed). These are the fallbacks.
+const CONFIG={
+  contextTemplate:'You\'re helping Kaitlyn, a licensed massage therapist and certified lymphatic drainage (MLD) practitioner who runs a solo studio, "Massage & Lymphatic by Kaitlyn," in Buda, TX, serving greater Austin. Clients book through Vagaro; her site is massageandlymphatic.com. Services: 90-min/2-hr all-inclusive Intentional Massage Experience ($195/$285), lymphatic and pre/post-op massage ($115/hr), session packages ($555-$1,250), memberships ($175/mo). She\'s actively growing her client base. She\'s not technical - give simple, practical, step-by-step help with ready-to-use wording (scripts, texts, captions) she can copy.\n\nHer to-do right now (category: {category}, priority: {priority}): {task}\n\nHelp her get this done today.',
+  projectId:''
+};
+const CONFIG_URL='https://docs.google.com/spreadsheets/d/1IQeC8UFB_tiNjWWit4kefHqqq_-i_2ZSdIJ8YDDEElM/gviz/tq?tqx=out:csv&sheet=Config';
+async function loadConfig(){
+  try{
+    const text=await fetch(CONFIG_URL).then(r=>r.text());
+    if(text.trim().startsWith('<')) return; // sheet not shared yet — keep defaults
+    parseCSV(text).forEach(row=>{
+      const k=(row[0]||'').trim(), v=(row[1]||'').trim();
+      if(k && k!=='key' && v && CONFIG.hasOwnProperty(k)) CONFIG[k]=v.replace(/\\n/g,'\n');
+    });
+  }catch(e){}
+}
 function claudeUrl(t){
-  const prompt='You\'re helping Kaitlyn, a licensed massage therapist and certified lymphatic drainage (MLD) practitioner who runs a solo studio, "Massage & Lymphatic by Kaitlyn," in Buda, TX, serving greater Austin. Clients book through Vagaro; her site is massageandlymphatic.com. Services: 90-min/2-hr all-inclusive Intentional Massage Experience ($195/$285), lymphatic and pre/post-op massage ($115/hr), session packages ($555-$1,250), memberships ($175/mo). She\'s actively growing her client base. She\'s not technical - give simple, practical, step-by-step help with ready-to-use wording (scripts, texts, captions) she can copy.\n\nHer to-do right now (category: '+t.cat+', priority: '+PRIO_LABEL[t.p].toLowerCase()+'): '+t.text+'\n\nHelp her get this done today.';
-  return 'https://claude.ai/new?q='+encodeURIComponent(prompt);
+  const prompt=CONFIG.contextTemplate
+    .replace(/\{task\}/g,t.text)
+    .replace(/\{category\}/g,t.cat)
+    .replace(/\{priority\}/g,PRIO_LABEL[t.p].toLowerCase());
+  return 'https://claude.ai/new?q='+encodeURIComponent(prompt)
+    +(CONFIG.projectId?'&project='+encodeURIComponent(CONFIG.projectId):'');
 }
 let DATA={tasks:[],notes:[]};
 let TAB='todo', CAT='All';
@@ -201,7 +223,7 @@ function draw(){
           `<div class="task p${t.p}" onclick="mark('${esc(t.id)}')">
              <div class="box"></div>
              <div><div class="txt">${esc(t.text)}</div>
-             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Ask Claude &#8599;</a></div></div>
+             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a></div></div>
            </div>`).join('');
       }
     }
@@ -240,7 +262,8 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 
 async function refresh(){
   try{
-    DATA=await call({action:'list'});
+    const [data]=await Promise.all([call({action:'list'}),loadConfig()]);
+    DATA=data;
     if(DATA.error) throw new Error(DATA.error);
     document.getElementById('status').style.display='none';
     document.getElementById('content').style.display='block';
