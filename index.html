@@ -133,10 +133,18 @@ async function load(){
     return;
   }
   const rows=parseCSV(text);
-  const head=rows[0].map(h=>h.trim().toLowerCase());
-  const idx={date:head.indexOf('date'),svc:head.indexOf('service'),amt:head.indexOf('amount'),
-             pay:head.findIndex(h=>h.startsWith('payment')),ord:head.findIndex(h=>h.startsWith('order')),src:head.indexOf('source')};
-  const sales=rows.slice(1).filter(r=>r.length>=5&&r[idx.date]).map(r=>({
+  // gviz sometimes consumes the header row; detect whether row 0 is a header
+  const r0=rows[0].map(h=>h.trim().toLowerCase());
+  const hasHeader=r0.includes('date')&&r0.includes('service');
+  let idx;
+  if(hasHeader){
+    idx={date:r0.indexOf('date'),svc:r0.indexOf('service'),amt:r0.indexOf('amount'),
+         pay:r0.findIndex(h=>h.startsWith('payment')),ord:r0.findIndex(h=>h.startsWith('order')),src:r0.indexOf('source')};
+  } else {
+    idx={date:0,svc:1,amt:2,qty:3,pay:4,ord:5,src:6}; // standard ledger column order
+  }
+  const dataRows=hasHeader?rows.slice(1):rows;
+  const sales=dataRows.filter(r=>r.length>=5&&/^\d{4}-\d{2}-\d{2}/.test((r[idx.date]||'').trim())).map(r=>({
     date:r[idx.date].trim(), svc:(r[idx.svc]||'').trim(), amt:parseFloat(r[idx.amt])||0,
     pay:(r[idx.pay]||'').trim().toUpperCase(), ord:(r[idx.ord]||'').trim(), src:(r[idx.src]||'?').trim().toLowerCase()
   }));
