@@ -42,13 +42,12 @@
 <div class="wrap">
   <header>
     <h1>Massage &amp; Lymphatic by Kaitlyn</h1>
-    <p id="subtitle">Sales at a Glance &middot; live from the sales ledger</p>
+    <p id="subtitle">Sales at a Glance &middot; live from the sales ledger &middot; v4</p>
   </header>
 
   <div id="status">Loading live data from Google Sheets&hellip;</div>
 
   <div id="content">
-    <div class="src-chips" id="chips"></div>
     <div class="cards">
       <div class="card"><div class="num" id="c-total"></div><div class="lbl">Total sales</div></div>
       <div class="card"><div class="num" id="c-paid"></div><div class="lbl">Money collected</div></div>
@@ -58,7 +57,7 @@
 
     <div class="panel">
       <h2>Sales by month</h2>
-      <div class="sub">Green = collected &middot; Terracotta = booked but not yet paid</div>
+      <div class="sub">Green = lymphatic &amp; post-op care &middot; Gold = massage &amp; everything else</div>
       <div class="chart-box"><canvas id="monthly"></canvas></div>
     </div>
 
@@ -148,7 +147,12 @@ async function load(){
     date:r[idx.date].trim(), svc:(r[idx.svc]||'').trim(), amt:parseFloat(r[idx.amt])||0,
     pay:(r[idx.pay]||'').trim().toUpperCase(), ord:(r[idx.ord]||'').trim(), src:(r[idx.src]||'?').trim().toLowerCase()
   }));
-  if(!sales.length){document.getElementById('status').textContent='The ledger is empty.';return;}
+  if(!sales.length){
+    const st=document.getElementById('status');
+    st.innerHTML='The ledger is empty. <br><small>debug: '+rows.length+' rows fetched; first row: '
+      +(rows[0]?rows[0].slice(0,4).join(' | ').replace(/</g,'&lt;'):'none')+'</small>';
+    return;
+  }
 
   const total=sales.reduce((s,x)=>s+x.amt,0);
   const paid=sales.filter(x=>x.pay==='PAID').reduce((s,x)=>s+x.amt,0);
@@ -156,8 +160,9 @@ async function load(){
   const orders=new Set(sales.map(x=>x.src+'|'+x.ord)).size;
 
   const months=[...new Set(sales.map(x=>x.date.slice(0,7)))].sort();
-  const mPaid=months.map(m=>sales.filter(x=>x.date.slice(0,7)===m&&x.pay==='PAID').reduce((s,x)=>s+x.amt,0));
-  const mUnpaid=months.map(m=>sales.filter(x=>x.date.slice(0,7)===m&&x.pay!=='PAID').reduce((s,x)=>s+x.amt,0));
+  const isLymph=x=>category(x.svc)==='Lymphatic & post-op care';
+  const mLymph=months.map(m=>sales.filter(x=>x.date.slice(0,7)===m&&isLymph(x)).reduce((s,x)=>s+x.amt,0));
+  const mOther=months.map(m=>sales.filter(x=>x.date.slice(0,7)===m&&!isLymph(x)).reduce((s,x)=>s+x.amt,0));
   const mLabel=months.map(m=>{const[y,mo]=m.split('-');return new Date(y,mo-1).toLocaleString('en',{month:'short'})+' '+y.slice(2);});
 
   const catTotals={};
@@ -180,16 +185,14 @@ async function load(){
   document.getElementById('c-unpaid').textContent=money(unpaid);
   document.getElementById('c-orders').textContent=orders;
   document.getElementById('c-orders-lbl').textContent='Orders · '+money(total/orders)+' avg';
-  document.getElementById('chips').innerHTML=Object.entries(srcTotals)
-    .map(([s,v])=>`<span class="chip">${s}: ${money(v)}</span>`).join('');
   const first=sales.reduce((a,b)=>a.date<b.date?a:b).date, last=sales.reduce((a,b)=>a.date>b.date?a:b).date;
   document.getElementById('subtitle').textContent=`Sales at a Glance · ${first} to ${last} · live from the sales ledger`;
 
   Chart.defaults.font.family="Georgia, serif"; Chart.defaults.color='#5c665e';
   new Chart(document.getElementById('monthly'),{type:'bar',
     data:{labels:mLabel,datasets:[
-      {label:'Collected',data:mPaid,backgroundColor:SAGE,borderRadius:6,stack:'s'},
-      {label:'Not yet paid',data:mUnpaid,backgroundColor:ROSE,borderRadius:6,stack:'s'}]},
+      {label:'Lymphatic & post-op',data:mLymph,backgroundColor:SAGE,borderRadius:6,stack:'s'},
+      {label:'Massage & other',data:mOther,backgroundColor:GOLD,borderRadius:6,stack:'s'}]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money2(c.parsed.y)}}},
       scales:{x:{grid:{display:false},stacked:true},y:{stacked:true,ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}}}}});
@@ -209,17 +212,21 @@ async function load(){
       scales:{x:{ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}},y:{grid:{display:false}}}}});
 
   const lymph=catTotals['Lymphatic & post-op care']||0;
-  const bestI=months.map((m,i)=>mPaid[i]+mUnpaid[i]).reduce((bi,v,i,a)=>v>a[bi]?i:bi,0);
+  const mTotal=months.map((m,i)=>mLymph[i]+mOther[i]);
+  const bestI=mTotal.reduce((bi,v,i,a)=>v>a[bi]?i:bi,0);
   const lastI=months.length-1;
+  const avgMonth=total/months.length;
+  const topSvc=svcSorted[0];
   const tw=[];
-  tw.push(`<p><b>Lymphatic work is the business.</b> Lymphatic and post-op care brought in <b>${Math.round(lymph/total*100)}&cent; of every dollar</b> — ${money2(lymph)} of ${money2(total)}.</p>`);
-  tw.push(`<p><b>${mLabel[bestI]} is the best month so far</b> at ${money2(mPaid[bestI]+mUnpaid[bestI])}. Package purchases drive the peaks — selling one package a month smooths income.</p>`);
-  if(unpaid>0) tw.push(`<p><b>${money2(unpaid)} is booked but not collected</b> — mostly pay-at-appointment bookings. Worth a quick reconciliation; some may be paid in cash and just never marked.</p>`);
-  tw.push(`<p><b>Latest month (${mLabel[lastI]}):</b> ${money2(mPaid[lastI]+mUnpaid[lastI])} booked${mUnpaid[lastI]>0?`, of which ${money2(mUnpaid[lastI])} still to collect`:''}.</p>`);
+  tw.push(`<p><b>Lymphatic work is the business.</b> Lymphatic and post-op care brought in <b>${Math.round(lymph/total*100)}&cent; of every dollar</b> — ${money2(lymph)} of ${money2(total)}. Top earner: ${topSvc[0]} (${money2(topSvc[1])}).</p>`);
+  tw.push(`<p><b>${mLabel[bestI]} is the best month so far</b> at ${money2(mTotal[bestI])}, against a monthly average of ${money2(avgMonth)}. Package purchases drive the peaks — selling one package a month smooths income.</p>`);
+  if(unpaid>0) tw.push(`<p><b>${money2(unpaid)} is booked but not collected.</b> Worth a quick reconciliation — some may be paid in cash and just never marked paid.</p>`);
+  const trend=lastI>0?(mTotal[lastI]-mTotal[lastI-1]):0;
+  if(lastI>0) tw.push(`<p><b>Latest month (${mLabel[lastI]}):</b> ${money2(mTotal[lastI])} booked — ${trend>=0?'up':'down'} ${money2(Math.abs(trend))} vs ${mLabel[lastI-1]}.</p>`);
   document.getElementById('takeaways').innerHTML=tw.join('');
 
   document.getElementById('footer').textContent=
-    `Live from the sales ledger (Google Sheets) · ${sales.length} sales · sources: ${Object.keys(srcTotals).join(', ')} · loaded ${new Date().toLocaleString()}`;
+    `Live from the sales ledger (Google Sheets) · ${sales.length} sales · loaded ${new Date().toLocaleString()}`;
 
   document.getElementById('status').style.display='none';
   document.getElementById('content').style.display='block';
