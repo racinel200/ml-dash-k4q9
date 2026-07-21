@@ -31,83 +31,192 @@
   .takeaways p:last-child{margin-bottom:0}
   .takeaways b{color:var(--sage-d)}
   footer{text-align:center;color:var(--muted);font-size:12px;margin-top:24px}
+  #status{text-align:center;padding:40px;color:var(--muted);font-size:15px}
+  #status.error{color:var(--rose)}
+  #content{display:none}
+  .src-chips{text-align:center;margin-bottom:20px}
+  .chip{display:inline-block;background:#e7ede7;color:var(--sage-d);border-radius:20px;padding:4px 14px;font-size:12px;margin:0 4px;letter-spacing:1px;text-transform:uppercase}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>Massage &amp; Lymphatic by Kaitlyn</h1>
-    <p>Sales at a Glance &middot; October 2025 &ndash; June 2026 &middot; from your Wix booking site</p>
+    <p id="subtitle">Sales at a Glance &middot; live from the sales ledger</p>
   </header>
 
-  <div class="cards">
-    <div class="card"><div class="num">$12,236</div><div class="lbl">Total sales</div></div>
-    <div class="card"><div class="num">$10,896</div><div class="lbl">Money collected</div></div>
-    <div class="card warn"><div class="num">$1,340</div><div class="lbl">Still to collect</div></div>
-    <div class="card"><div class="num">120</div><div class="lbl">Orders &middot; $102 avg</div></div>
-  </div>
+  <div id="status">Loading live data from Google Sheets&hellip;</div>
 
-  <div class="panel">
-    <h2>Sales by month</h2>
-    <div class="sub">Green = collected &middot; Terracotta = booked but not yet paid (usually pay-at-appointment)</div>
-    <div class="chart-box"><canvas id="monthly"></canvas></div>
-  </div>
-
-  <div class="row">
-    <div class="panel">
-      <h2>Where the money comes from</h2>
-      <div class="sub">Share of all sales by type of service</div>
-      <div class="chart-box"><canvas id="pie"></canvas></div>
+  <div id="content">
+    <div class="src-chips" id="chips"></div>
+    <div class="cards">
+      <div class="card"><div class="num" id="c-total"></div><div class="lbl">Total sales</div></div>
+      <div class="card"><div class="num" id="c-paid"></div><div class="lbl">Money collected</div></div>
+      <div class="card warn"><div class="num" id="c-unpaid"></div><div class="lbl">Still to collect</div></div>
+      <div class="card"><div class="num" id="c-orders"></div><div class="lbl" id="c-orders-lbl">Orders</div></div>
     </div>
+
     <div class="panel">
-      <h2>Top services</h2>
-      <div class="sub">Total sales per service, best first</div>
-      <div class="chart-box tall"><canvas id="services"></canvas></div>
+      <h2>Sales by month</h2>
+      <div class="sub">Green = collected &middot; Terracotta = booked but not yet paid</div>
+      <div class="chart-box"><canvas id="monthly"></canvas></div>
     </div>
-  </div>
 
-  <div class="takeaways">
-    <h2>What this means, in plain English</h2>
-    <p><b>Lymphatic work is the business.</b> Lymphatic and post-op care (sessions + packages) brought in <b>64&cent; of every dollar</b> — $7,840 of $12,236. The packages sell: five 6-session packages and one 12-session recovery package.</p>
-    <p><b>January was the best month ($3,830)</b> because several clients bought packages. Months without a package sale drop to ~$1,000. Selling <b>one package a month</b> is the single easiest way to smooth income.</p>
-    <p><b>June needs attention.</b> It was the slowest month since opening ($910), and $545 of it hasn&rsquo;t been collected yet — 5 of 10 June bookings chose &ldquo;pay at appointment.&rdquo; Worth double-checking those were paid in person.</p>
-    <p><b>$1,340 total is booked but unpaid.</b> Some of this may already be paid in cash and just never marked paid in Wix — 10 minutes of cleanup will show the true number.</p>
-  </div>
+    <div class="row">
+      <div class="panel">
+        <h2>Where the money comes from</h2>
+        <div class="sub">Share of all sales by type of service</div>
+        <div class="chart-box"><canvas id="pie"></canvas></div>
+      </div>
+      <div class="panel">
+        <h2>Top services</h2>
+        <div class="sub">Total sales per service, best first</div>
+        <div class="chart-box tall"><canvas id="services"></canvas></div>
+      </div>
+    </div>
 
-  <footer>Prepared July 20, 2026 &middot; Source: Wix orders (122 orders; 2 canceled orders excluded)</footer>
+    <div class="takeaways">
+      <h2>What this means, in plain English</h2>
+      <div id="takeaways"></div>
+    </div>
+
+    <footer id="footer"></footer>
+  </div>
 </div>
 
 <script>
-const months=['Oct 25','Nov 25','Dec 25','Jan 26','Feb 26','Mar 26','Apr 26','May 26','Jun 26'];
-const paid=[465,320,245,3665,1010.5,880,2400,1545,365];
-const unpaid=[100,0,0,165,115,325,0,90,545];
+const SHEET_ID='1qq5JCvKQzTHZSmeA8Yki_C_2c8OMkZ4szkUBojNjlp4';
+const GID='51515579';
+const CSV_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
 const SAGE='#5a7a5e',SAGED='#2f5233',GOLD='#c9a86a',ROSE='#c97b6a',MIST='#a8bfaa',CLAY='#8d6e63';
-Chart.defaults.font.family="Georgia, serif";
-Chart.defaults.color='#5c665e';
-const money=v=>'$'+v.toLocaleString();
+const money=v=>'$'+Math.round(v).toLocaleString();
+const money2=v=>'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 
-new Chart(document.getElementById('monthly'),{type:'bar',
- data:{labels:months,datasets:[
-  {label:'Collected',data:paid,backgroundColor:SAGE,borderRadius:6,stack:'s'},
-  {label:'Not yet paid',data:unpaid,backgroundColor:ROSE,borderRadius:6,stack:'s'}]},
- options:{responsive:true,maintainAspectRatio:false,
-  plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money(c.parsed.y)}}},
-  scales:{x:{grid:{display:false},stacked:true},y:{stacked:true,ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}}}}});
+function parseCSV(text){
+  const rows=[];let row=[],cur='',inQ=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(inQ){
+      if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else inQ=false; }
+      else cur+=ch;
+    } else {
+      if(ch==='"') inQ=true;
+      else if(ch===','){row.push(cur);cur='';}
+      else if(ch==='\n'){row.push(cur.replace(/\r$/,''));rows.push(row);row=[];cur='';}
+      else cur+=ch;
+    }
+  }
+  if(cur!==''||row.length){row.push(cur.replace(/\r$/,''));rows.push(row);}
+  return rows;
+}
 
-new Chart(document.getElementById('pie'),{type:'doughnut',
- data:{labels:['Lymphatic & post-op care','Custom massage','Packs & memberships','Gift cards & other'],
-  datasets:[{data:[7840.5,2085,1860,450],backgroundColor:[SAGED,GOLD,MIST,CLAY],borderColor:'#fff',borderWidth:3}]},
- options:{responsive:true,maintainAspectRatio:false,cutout:'55%',
-  plugins:{legend:{position:'bottom'},
-   tooltip:{callbacks:{label:c=>{const t=12235.5;return c.label+': '+money(c.parsed)+' ('+Math.round(c.parsed/t*100)+'%)'}}}}}});
+function category(svc){
+  const s=svc.toLowerCase();
+  if(s.includes('lymphatic')||s.includes('mld')||s.includes('post-op')) return 'Lymphatic & post-op care';
+  if(s.includes('membership')||s.includes('pack')) return 'Packs & memberships';
+  if(s.includes('gift')) return 'Gift cards';
+  if(s.includes('massage')) return 'Custom massage';
+  return 'Other';
+}
 
-new Chart(document.getElementById('services'),{type:'bar',
- data:{labels:['6-Session MLD Package','Pre/Post-Op Lymphatic','Lymphatic Drainage','12-Session Post-Op Pkg','6 Session Massage Pack','12-Month Membership','Massage 60 min','Massage 90 min','Gift cards','Other'],
-  datasets:[{data:[2600,2495.5,1495,1250,960,900,845,825,310,555],
-   backgroundColor:[SAGED,SAGE,SAGE,SAGED,GOLD,GOLD,MIST,MIST,CLAY,'#c9c2b2'],borderRadius:6}]},
- options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
-  plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money(c.parsed.x)}}},
-  scales:{x:{ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}},y:{grid:{display:false}}}}});
+async function load(){
+  let text;
+  try{
+    const r=await fetch(CSV_URL);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    text=await r.text();
+    if(text.trim().startsWith('<')) throw new Error('not shared');
+  }catch(e){
+    const st=document.getElementById('status');
+    st.className='error';
+    st.innerHTML='Couldn&rsquo;t load the live data.<br><br>The Google Sheet must be shared as &ldquo;Anyone with the link &mdash; Viewer.&rdquo;<br>Ask Racine to check the sharing settings, then refresh this page.';
+    return;
+  }
+  const rows=parseCSV(text);
+  const head=rows[0].map(h=>h.trim().toLowerCase());
+  const idx={date:head.indexOf('date'),svc:head.indexOf('service'),amt:head.indexOf('amount'),
+             pay:head.findIndex(h=>h.startsWith('payment')),ord:head.findIndex(h=>h.startsWith('order')),src:head.indexOf('source')};
+  const sales=rows.slice(1).filter(r=>r.length>=5&&r[idx.date]).map(r=>({
+    date:r[idx.date].trim(), svc:(r[idx.svc]||'').trim(), amt:parseFloat(r[idx.amt])||0,
+    pay:(r[idx.pay]||'').trim().toUpperCase(), ord:(r[idx.ord]||'').trim(), src:(r[idx.src]||'?').trim().toLowerCase()
+  }));
+  if(!sales.length){document.getElementById('status').textContent='The ledger is empty.';return;}
+
+  const total=sales.reduce((s,x)=>s+x.amt,0);
+  const paid=sales.filter(x=>x.pay==='PAID').reduce((s,x)=>s+x.amt,0);
+  const unpaid=total-paid;
+  const orders=new Set(sales.map(x=>x.src+'|'+x.ord)).size;
+
+  const months=[...new Set(sales.map(x=>x.date.slice(0,7)))].sort();
+  const mPaid=months.map(m=>sales.filter(x=>x.date.slice(0,7)===m&&x.pay==='PAID').reduce((s,x)=>s+x.amt,0));
+  const mUnpaid=months.map(m=>sales.filter(x=>x.date.slice(0,7)===m&&x.pay!=='PAID').reduce((s,x)=>s+x.amt,0));
+  const mLabel=months.map(m=>{const[y,mo]=m.split('-');return new Date(y,mo-1).toLocaleString('en',{month:'short'})+' '+y.slice(2);});
+
+  const catTotals={};
+  sales.forEach(x=>{const c=category(x.svc);catTotals[c]=(catTotals[c]||0)+x.amt;});
+  const catNames=Object.keys(catTotals).sort((a,b)=>catTotals[b]-catTotals[a]);
+
+  const svcTotals={};
+  sales.forEach(x=>{svcTotals[x.svc]=(svcTotals[x.svc]||0)+x.amt;});
+  let svcSorted=Object.entries(svcTotals).sort((a,b)=>b[1]-a[1]);
+  if(svcSorted.length>9){
+    const top=svcSorted.slice(0,9), rest=svcSorted.slice(9).reduce((s,x)=>s+x[1],0);
+    svcSorted=[...top,['Other',rest]];
+  }
+
+  const srcTotals={};
+  sales.forEach(x=>{srcTotals[x.src]=(srcTotals[x.src]||0)+x.amt;});
+
+  document.getElementById('c-total').textContent=money(total);
+  document.getElementById('c-paid').textContent=money(paid);
+  document.getElementById('c-unpaid').textContent=money(unpaid);
+  document.getElementById('c-orders').textContent=orders;
+  document.getElementById('c-orders-lbl').textContent='Orders · '+money(total/orders)+' avg';
+  document.getElementById('chips').innerHTML=Object.entries(srcTotals)
+    .map(([s,v])=>`<span class="chip">${s}: ${money(v)}</span>`).join('');
+  const first=sales.reduce((a,b)=>a.date<b.date?a:b).date, last=sales.reduce((a,b)=>a.date>b.date?a:b).date;
+  document.getElementById('subtitle').textContent=`Sales at a Glance · ${first} to ${last} · live from the sales ledger`;
+
+  Chart.defaults.font.family="Georgia, serif"; Chart.defaults.color='#5c665e';
+  new Chart(document.getElementById('monthly'),{type:'bar',
+    data:{labels:mLabel,datasets:[
+      {label:'Collected',data:mPaid,backgroundColor:SAGE,borderRadius:6,stack:'s'},
+      {label:'Not yet paid',data:mUnpaid,backgroundColor:ROSE,borderRadius:6,stack:'s'}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money2(c.parsed.y)}}},
+      scales:{x:{grid:{display:false},stacked:true},y:{stacked:true,ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}}}}});
+
+  new Chart(document.getElementById('pie'),{type:'doughnut',
+    data:{labels:catNames,datasets:[{data:catNames.map(c=>catTotals[c]),
+      backgroundColor:[SAGED,GOLD,MIST,CLAY,'#c9c2b2'],borderColor:'#fff',borderWidth:3}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'55%',
+      plugins:{legend:{position:'bottom'},
+        tooltip:{callbacks:{label:c=>c.label+': '+money2(c.parsed)+' ('+Math.round(c.parsed/total*100)+'%)'}}}}});
+
+  new Chart(document.getElementById('services'),{type:'bar',
+    data:{labels:svcSorted.map(x=>x[0]),datasets:[{data:svcSorted.map(x=>x[1]),
+      backgroundColor:svcSorted.map((_,i)=>[SAGED,SAGE,SAGE,SAGED,GOLD,GOLD,MIST,MIST,CLAY,'#c9c2b2'][i]),borderRadius:6}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money2(c.parsed.x)}}},
+      scales:{x:{ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}},y:{grid:{display:false}}}}});
+
+  const lymph=catTotals['Lymphatic & post-op care']||0;
+  const bestI=months.map((m,i)=>mPaid[i]+mUnpaid[i]).reduce((bi,v,i,a)=>v>a[bi]?i:bi,0);
+  const lastI=months.length-1;
+  const tw=[];
+  tw.push(`<p><b>Lymphatic work is the business.</b> Lymphatic and post-op care brought in <b>${Math.round(lymph/total*100)}&cent; of every dollar</b> — ${money2(lymph)} of ${money2(total)}.</p>`);
+  tw.push(`<p><b>${mLabel[bestI]} is the best month so far</b> at ${money2(mPaid[bestI]+mUnpaid[bestI])}. Package purchases drive the peaks — selling one package a month smooths income.</p>`);
+  if(unpaid>0) tw.push(`<p><b>${money2(unpaid)} is booked but not collected</b> — mostly pay-at-appointment bookings. Worth a quick reconciliation; some may be paid in cash and just never marked.</p>`);
+  tw.push(`<p><b>Latest month (${mLabel[lastI]}):</b> ${money2(mPaid[lastI]+mUnpaid[lastI])} booked${mUnpaid[lastI]>0?`, of which ${money2(mUnpaid[lastI])} still to collect`:''}.</p>`);
+  document.getElementById('takeaways').innerHTML=tw.join('');
+
+  document.getElementById('footer').textContent=
+    `Live from the sales ledger (Google Sheets) · ${sales.length} sales · sources: ${Object.keys(srcTotals).join(', ')} · loaded ${new Date().toLocaleString()}`;
+
+  document.getElementById('status').style.display='none';
+  document.getElementById('content').style.display='block';
+}
+load();
 </script>
 </body>
 </html>
