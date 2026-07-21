@@ -38,6 +38,8 @@
   .task.done .txt{text-decoration:line-through;color:var(--muted)}
   .task .meta{font-size:11.5px;color:var(--muted);margin-top:3px}
   .chip{display:inline-block;background:#eef3ee;color:var(--sage-d);border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;margin-right:6px}
+  .askclaude{display:inline-block;color:#b0602f;background:#faf3ec;border:1px solid #ecd9c8;border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;text-decoration:none;margin-left:8px}
+  .askclaude:hover{background:#b0602f;color:#fff;border-color:#b0602f}
   .task .undo{margin-left:auto;font-size:12px;color:var(--muted);border:none;background:none;cursor:pointer;font-family:inherit;text-decoration:underline}
   .action{display:flex;gap:12px;padding:12px 6px;border-bottom:1px solid #f0ede4}
   .action:last-child{border-bottom:none}
@@ -154,6 +156,10 @@ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'
 const fmtDate=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,10):d.toLocaleDateString('en',{month:'short',day:'numeric'});};
 const fmtDT=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,16):d.toLocaleDateString('en',{month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en',{hour:'numeric',minute:'2-digit'});};
 const PRIO_LABEL={1:'Do first',2:'This week',3:'When you can'};
+function claudeUrl(t){
+  const prompt='You\'re helping Kaitlyn, a licensed massage therapist and certified lymphatic drainage (MLD) practitioner who runs a solo studio, "Massage & Lymphatic by Kaitlyn," in Buda, TX, serving greater Austin. Clients book through Vagaro; her site is massageandlymphatic.com. Services: 90-min/2-hr all-inclusive Intentional Massage Experience ($195/$285), lymphatic and pre/post-op massage ($115/hr), session packages ($555-$1,250), memberships ($175/mo). She\'s actively growing her client base. She\'s not technical - give simple, practical, step-by-step help with ready-to-use wording (scripts, texts, captions) she can copy.\n\nHer to-do right now (category: '+t.cat+', priority: '+PRIO_LABEL[t.p].toLowerCase()+'): '+t.text+'\n\nHelp her get this done today.';
+  return 'https://claude.ai/new?q='+encodeURIComponent(prompt);
+}
 let DATA={tasks:[],notes:[]};
 let TAB='todo', CAT='All';
 
@@ -195,7 +201,7 @@ function draw(){
           `<div class="task p${t.p}" onclick="mark('${esc(t.id)}')">
              <div class="box"></div>
              <div><div class="txt">${esc(t.text)}</div>
-             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}</div></div>
+             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Ask Claude &#8599;</a></div></div>
            </div>`).join('');
       }
     }
