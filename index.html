@@ -45,16 +45,16 @@
 <div class="wrap">
   <header>
     <h1>Massage &amp; Lymphatic by Kaitlyn</h1>
-    <p id="subtitle">Sales at a Glance &middot; live from the sales ledger &middot; v5</p>
+    <p id="subtitle">Sales at a Glance &middot; live from the sales ledger &middot; v6</p>
   </header>
 
   <div id="status">Loading live data from Google Sheets&hellip;</div>
 
   <div id="content">
     <div class="seg" id="rangeSeg">
-      <button data-g="week">Weekly</button>
-      <button data-g="month" class="active">Monthly</button>
-      <button data-g="year">Yearly</button>
+      <button data-g="week">This Week</button>
+      <button data-g="month" class="active">This Month</button>
+      <button data-g="year">This Year</button>
     </div>
     <div class="cards">
       <div class="card"><div class="num" id="c-total"></div><div class="lbl">Total sales</div></div>
@@ -64,20 +64,20 @@
     </div>
 
     <div class="panel">
-      <h2 id="timeTitle">Sales by month</h2>
+      <h2 id="timeTitle">Sales</h2>
       <div class="sub">Green = lymphatic &amp; post-op care &middot; Gold = massage &amp; everything else</div>
-      <div class="chart-box"><canvas id="monthly"></canvas></div>
+      <div class="chart-box"><canvas id="timechart"></canvas></div>
     </div>
 
     <div class="row">
       <div class="panel">
         <h2>Where the money comes from</h2>
-        <div class="sub">Share of all sales by type of service</div>
+        <div class="sub">Share of sales by type of service</div>
         <div class="chart-box"><canvas id="pie"></canvas></div>
       </div>
       <div class="panel">
         <h2>Top services</h2>
-        <div class="sub">Total sales per service, best first</div>
+        <div class="sub">Sales per service, best first</div>
         <div class="chart-box tall"><canvas id="services"></canvas></div>
       </div>
     </div>
@@ -98,6 +98,7 @@ const CSV_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=ou
 const SAGE='#5a7a5e',SAGED='#2f5233',GOLD='#c9a86a',ROSE='#c97b6a',MIST='#a8bfaa',CLAY='#8d6e63';
 const money=v=>'$'+Math.round(v).toLocaleString();
 const money2=v=>'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 
 function parseCSV(text){
   const rows=[];let row=[],cur='',inQ=false;
@@ -125,6 +126,150 @@ function category(svc){
   if(s.includes('massage')) return 'Custom massage';
   return 'Other';
 }
+const isLymph=x=>category(x.svc)==='Lymphatic & post-op care';
+
+let SALES=[];
+let charts={time:null,pie:null,svc:null};
+
+// [start,end) date-string windows for current and previous period
+function windows(mode){
+  const now=new Date();
+  let s,e,ps,pe,label,prevLabel,pretty;
+  if(mode==='week'){
+    const mon=new Date(now); mon.setDate(now.getDate()-((now.getDay()+6)%7));
+    const nextMon=new Date(mon); nextMon.setDate(mon.getDate()+7);
+    const prevMon=new Date(mon); prevMon.setDate(mon.getDate()-7);
+    s=iso(mon); e=iso(nextMon); ps=iso(prevMon); pe=iso(mon);
+    label='this week'; prevLabel='last week';
+    pretty='Week of '+mon.toLocaleString('en',{month:'long',day:'numeric',year:'numeric'});
+  } else if(mode==='month'){
+    s=iso(new Date(now.getFullYear(),now.getMonth(),1));
+    e=iso(new Date(now.getFullYear(),now.getMonth()+1,1));
+    ps=iso(new Date(now.getFullYear(),now.getMonth()-1,1)); pe=s;
+    label='this month'; prevLabel='last month';
+    pretty=now.toLocaleString('en',{month:'long',year:'numeric'});
+  } else {
+    s=now.getFullYear()+'-01-01'; e=(now.getFullYear()+1)+'-01-01';
+    ps=(now.getFullYear()-1)+'-01-01'; pe=s;
+    label='this year'; prevLabel='last year';
+    pretty=String(now.getFullYear());
+  }
+  return {s,e,ps,pe,label,prevLabel,pretty};
+}
+
+// bucket labels + keys for the time chart within the window (zero-filled)
+function buckets(mode,w){
+  const keys=[],labels=[];
+  if(mode==='year'){
+    const y=w.s.slice(0,4);
+    for(let m=1;m<=12;m++){
+      keys.push(y+'-'+String(m).padStart(2,'0'));
+      labels.push(new Date(y,m-1).toLocaleString('en',{month:'short'}));
+    }
+    return {keys,labels,keyOf:d=>d.slice(0,7)};
+  }
+  // week and month: one bucket per day
+  let d=new Date(w.s+'T00:00:00');
+  const end=new Date(w.e+'T00:00:00');
+  while(d<end){
+    keys.push(iso(d));
+    labels.push(mode==='week'
+      ? d.toLocaleString('en',{weekday:'short'})
+      : String(d.getDate()));
+    d=new Date(d); d.setDate(d.getDate()+1);
+  }
+  return {keys,labels,keyOf:d=>d};
+}
+
+function makeCharts(){
+  Chart.defaults.font.family="Georgia, serif"; Chart.defaults.color='#5c665e';
+  charts.time=new Chart(document.getElementById('timechart'),{type:'bar',
+    data:{labels:[],datasets:[
+      {label:'Lymphatic & post-op',data:[],backgroundColor:SAGE,borderRadius:4,stack:'s'},
+      {label:'Massage & other',data:[],backgroundColor:GOLD,borderRadius:4,stack:'s'}]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money2(c.parsed.y)}}},
+      scales:{x:{grid:{display:false},stacked:true},y:{stacked:true,ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}}}}});
+  charts.pie=new Chart(document.getElementById('pie'),{type:'doughnut',
+    data:{labels:[],datasets:[{data:[],backgroundColor:[SAGED,GOLD,MIST,CLAY,'#c9c2b2'],borderColor:'#fff',borderWidth:3}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'55%',
+      plugins:{legend:{position:'bottom'},
+        tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((a,b)=>a+b,0)||1;return c.label+': '+money2(c.parsed)+' ('+Math.round(c.parsed/t*100)+'%)'}}}}}});
+  charts.svc=new Chart(document.getElementById('services'),{type:'bar',
+    data:{labels:[],datasets:[{data:[],backgroundColor:[SAGED,SAGE,SAGE,SAGED,GOLD,GOLD,MIST,MIST,CLAY,'#c9c2b2'],borderRadius:6}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money2(c.parsed.x)}}},
+      scales:{x:{ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}},y:{grid:{display:false}}}}});
+}
+
+function render(mode){
+  const w=windows(mode);
+  const cur=SALES.filter(x=>x.date>=w.s&&x.date<w.e);
+  const prev=SALES.filter(x=>x.date>=w.ps&&x.date<w.pe);
+  const total=cur.reduce((s,x)=>s+x.amt,0);
+  const paid=cur.filter(x=>x.pay==='PAID').reduce((s,x)=>s+x.amt,0);
+  const unpaid=total-paid;
+  const orders=new Set(cur.map(x=>x.src+'|'+x.ord)).size;
+  const prevTotal=prev.reduce((s,x)=>s+x.amt,0);
+
+  document.getElementById('c-total').textContent=money(total);
+  document.getElementById('c-paid').textContent=money(paid);
+  document.getElementById('c-unpaid').textContent=money(unpaid);
+  document.getElementById('c-orders').textContent=orders;
+  document.getElementById('c-orders-lbl').textContent='Orders'+(orders?' · '+money(total/orders)+' avg':'');
+  document.getElementById('subtitle').textContent=`Sales at a Glance · ${w.pretty} · live from the sales ledger · v6`;
+  document.getElementById('timeTitle').textContent='Sales '+w.label;
+
+  // time chart, zero-filled buckets
+  const b=buckets(mode,w);
+  const L=b.keys.map(k=>cur.filter(x=>b.keyOf(x.date)===k&&isLymph(x)).reduce((s,x)=>s+x.amt,0));
+  const O=b.keys.map(k=>cur.filter(x=>b.keyOf(x.date)===k&&!isLymph(x)).reduce((s,x)=>s+x.amt,0));
+  charts.time.data.labels=b.labels;
+  charts.time.data.datasets[0].data=L;
+  charts.time.data.datasets[1].data=O;
+  charts.time.update();
+
+  // donut
+  const catTotals={};
+  cur.forEach(x=>{const c=category(x.svc);catTotals[c]=(catTotals[c]||0)+x.amt;});
+  const catNames=Object.keys(catTotals).sort((a,b)=>catTotals[b]-catTotals[a]);
+  charts.pie.data.labels=catNames;
+  charts.pie.data.datasets[0].data=catNames.map(c=>catTotals[c]);
+  charts.pie.update();
+
+  // top services
+  const svcTotals={};
+  cur.forEach(x=>{svcTotals[x.svc]=(svcTotals[x.svc]||0)+x.amt;});
+  let svcSorted=Object.entries(svcTotals).sort((a,b)=>b[1]-a[1]);
+  if(svcSorted.length>9){
+    const top=svcSorted.slice(0,9), rest=svcSorted.slice(9).reduce((s,x)=>s+x[1],0);
+    svcSorted=[...top,['Other',rest]];
+  }
+  charts.svc.data.labels=svcSorted.map(x=>x[0]);
+  charts.svc.data.datasets[0].data=svcSorted.map(x=>x[1]);
+  charts.svc.update();
+
+  // takeaways
+  const tw=[];
+  if(!cur.length){
+    tw.push(`<p>No sales recorded yet ${w.label}.` +
+      (prevTotal>0?` ${w.prevLabel[0].toUpperCase()+w.prevLabel.slice(1)} finished at <b>${money2(prevTotal)}</b>.`:'')+`</p>`);
+  } else {
+    const diff=total-prevTotal;
+    const pct=prevTotal>0?` (${diff>=0?'+':''}${Math.round(diff/prevTotal*100)}%)`:'';
+    tw.push(`<p><b>${money2(total)} booked ${w.label}</b> across ${orders} order${orders===1?'':'s'} — ${diff>=0?'up':'down'} ${money2(Math.abs(diff))}${pct} vs ${w.prevLabel}.</p>`);
+    const lymph=catTotals['Lymphatic & post-op care']||0;
+    if(lymph>0) tw.push(`<p><b>Lymphatic &amp; post-op care is ${Math.round(lymph/total*100)}&cent; of every dollar</b> ${w.label} (${money2(lymph)}).</p>`);
+    const bestI=b.keys.map((k,i)=>L[i]+O[i]).reduce((bi,v,i,a)=>v>a[bi]?i:bi,0);
+    const bestAmt=L[bestI]+O[bestI];
+    if(bestAmt>0) tw.push(`<p><b>Best ${mode==='year'?'month':'day'}:</b> ${b.labels[bestI]} at ${money2(bestAmt)}.</p>`);
+    if(unpaid>0) tw.push(`<p><b>${money2(unpaid)} is booked but not collected</b> ${w.label} — worth a quick check that it was paid in person.</p>`);
+  }
+  document.getElementById('takeaways').innerHTML=tw.join('');
+
+  document.getElementById('footer').textContent=
+    `Live from the sales ledger (Google Sheets) · showing ${w.label} · ${cur.length} of ${SALES.length} sales · loaded ${new Date().toLocaleString()}`;
+}
 
 async function load(){
   let text;
@@ -140,7 +285,6 @@ async function load(){
     return;
   }
   const rows=parseCSV(text);
-  // gviz sometimes consumes the header row; detect whether row 0 is a header
   const r0=rows[0].map(h=>h.trim().toLowerCase());
   const hasHeader=r0.includes('date')&&r0.includes('service');
   let idx;
@@ -148,126 +292,23 @@ async function load(){
     idx={date:r0.indexOf('date'),svc:r0.indexOf('service'),amt:r0.indexOf('amount'),
          pay:r0.findIndex(h=>h.startsWith('payment')),ord:r0.findIndex(h=>h.startsWith('order')),src:r0.indexOf('source')};
   } else {
-    idx={date:0,svc:1,amt:2,qty:3,pay:4,ord:5,src:6}; // standard ledger column order
+    idx={date:0,svc:1,amt:2,qty:3,pay:4,ord:5,src:6};
   }
   const dataRows=hasHeader?rows.slice(1):rows;
-  const sales=dataRows.filter(r=>r.length>=5&&/^\d{4}-\d{2}-\d{2}/.test((r[idx.date]||'').trim())).map(r=>({
-    date:r[idx.date].trim(), svc:(r[idx.svc]||'').trim(), amt:parseFloat(r[idx.amt])||0,
+  SALES=dataRows.filter(r=>r.length>=5&&/^\d{4}-\d{2}-\d{2}/.test((r[idx.date]||'').trim())).map(r=>({
+    date:r[idx.date].trim().slice(0,10), svc:(r[idx.svc]||'').trim(), amt:parseFloat(r[idx.amt])||0,
     pay:(r[idx.pay]||'').trim().toUpperCase(), ord:(r[idx.ord]||'').trim(), src:(r[idx.src]||'?').trim().toLowerCase()
   }));
-  if(!sales.length){
-    const st=document.getElementById('status');
-    st.innerHTML='The ledger is empty. <br><small>debug: '+rows.length+' rows fetched; first row: '
-      +(rows[0]?rows[0].slice(0,4).join(' | ').replace(/</g,'&lt;'):'none')+'</small>';
-    return;
-  }
-
-  const total=sales.reduce((s,x)=>s+x.amt,0);
-  const paid=sales.filter(x=>x.pay==='PAID').reduce((s,x)=>s+x.amt,0);
-  const unpaid=total-paid;
-  const orders=new Set(sales.map(x=>x.src+'|'+x.ord)).size;
-
-  const months=[...new Set(sales.map(x=>x.date.slice(0,7)))].sort();
-  const isLymph=x=>category(x.svc)==='Lymphatic & post-op care';
-  const mLymph=months.map(m=>sales.filter(x=>x.date.slice(0,7)===m&&isLymph(x)).reduce((s,x)=>s+x.amt,0));
-  const mOther=months.map(m=>sales.filter(x=>x.date.slice(0,7)===m&&!isLymph(x)).reduce((s,x)=>s+x.amt,0));
-  const mLabel=months.map(m=>{const[y,mo]=m.split('-');return new Date(y,mo-1).toLocaleString('en',{month:'short'})+' '+y.slice(2);});
-
-  const catTotals={};
-  sales.forEach(x=>{const c=category(x.svc);catTotals[c]=(catTotals[c]||0)+x.amt;});
-  const catNames=Object.keys(catTotals).sort((a,b)=>catTotals[b]-catTotals[a]);
-
-  const svcTotals={};
-  sales.forEach(x=>{svcTotals[x.svc]=(svcTotals[x.svc]||0)+x.amt;});
-  let svcSorted=Object.entries(svcTotals).sort((a,b)=>b[1]-a[1]);
-  if(svcSorted.length>9){
-    const top=svcSorted.slice(0,9), rest=svcSorted.slice(9).reduce((s,x)=>s+x[1],0);
-    svcSorted=[...top,['Other',rest]];
-  }
-
-  const srcTotals={};
-  sales.forEach(x=>{srcTotals[x.src]=(srcTotals[x.src]||0)+x.amt;});
-
-  document.getElementById('c-total').textContent=money(total);
-  document.getElementById('c-paid').textContent=money(paid);
-  document.getElementById('c-unpaid').textContent=money(unpaid);
-  document.getElementById('c-orders').textContent=orders;
-  document.getElementById('c-orders-lbl').textContent='Orders · '+money(total/orders)+' avg';
-  const first=sales.reduce((a,b)=>a.date<b.date?a:b).date, last=sales.reduce((a,b)=>a.date>b.date?a:b).date;
-  document.getElementById('subtitle').textContent=`Sales at a Glance · ${first} to ${last} · live from the sales ledger`;
-
-  Chart.defaults.font.family="Georgia, serif"; Chart.defaults.color='#5c665e';
-
-  const mondayOf=d=>{const dt=new Date(d+'T00:00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.toISOString().slice(0,10);};
-  const keyFor=(d,g)=>g==='week'?mondayOf(d):(g==='year'?d.slice(0,4):d.slice(0,7));
-  const labelFor=(k,g)=>{
-    if(g==='year') return k;
-    if(g==='month'){const[y,mo]=k.split('-');return new Date(y,mo-1).toLocaleString('en',{month:'short'})+' '+y.slice(2);}
-    const dt=new Date(k+'T00:00:00');
-    return dt.toLocaleString('en',{month:'short',day:'numeric'})+" '"+k.slice(2,4);
-  };
-  let timeChart=null;
-  function renderTime(g){
-    const keys=[...new Set(sales.map(x=>keyFor(x.date,g)))].sort();
-    const L=keys.map(k=>sales.filter(x=>keyFor(x.date,g)===k&&isLymph(x)).reduce((s,x)=>s+x.amt,0));
-    const O=keys.map(k=>sales.filter(x=>keyFor(x.date,g)===k&&!isLymph(x)).reduce((s,x)=>s+x.amt,0));
-    const labels=keys.map(k=>labelFor(k,g));
-    document.getElementById('timeTitle').textContent='Sales by '+(g==='week'?'week':(g==='year'?'year':'month'));
-    if(timeChart){
-      timeChart.data.labels=labels;
-      timeChart.data.datasets[0].data=L;
-      timeChart.data.datasets[1].data=O;
-      timeChart.update();
-      return;
-    }
-    timeChart=new Chart(document.getElementById('monthly'),{type:'bar',
-      data:{labels:labels,datasets:[
-        {label:'Lymphatic & post-op',data:L,backgroundColor:SAGE,borderRadius:6,stack:'s'},
-        {label:'Massage & other',data:O,backgroundColor:GOLD,borderRadius:6,stack:'s'}]},
-      options:{responsive:true,maintainAspectRatio:false,
-        plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money2(c.parsed.y)}}},
-        scales:{x:{grid:{display:false},stacked:true},y:{stacked:true,ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}}}}});
-  }
-  renderTime('month');
-  document.querySelectorAll('#rangeSeg button').forEach(b=>b.addEventListener('click',()=>{
-    document.querySelectorAll('#rangeSeg button').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
-    renderTime(b.dataset.g);
-  }));
-
-  new Chart(document.getElementById('pie'),{type:'doughnut',
-    data:{labels:catNames,datasets:[{data:catNames.map(c=>catTotals[c]),
-      backgroundColor:[SAGED,GOLD,MIST,CLAY,'#c9c2b2'],borderColor:'#fff',borderWidth:3}]},
-    options:{responsive:true,maintainAspectRatio:false,cutout:'55%',
-      plugins:{legend:{position:'bottom'},
-        tooltip:{callbacks:{label:c=>c.label+': '+money2(c.parsed)+' ('+Math.round(c.parsed/total*100)+'%)'}}}}});
-
-  new Chart(document.getElementById('services'),{type:'bar',
-    data:{labels:svcSorted.map(x=>x[0]),datasets:[{data:svcSorted.map(x=>x[1]),
-      backgroundColor:svcSorted.map((_,i)=>[SAGED,SAGE,SAGE,SAGED,GOLD,GOLD,MIST,MIST,CLAY,'#c9c2b2'][i]),borderRadius:6}]},
-    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>money2(c.parsed.x)}}},
-      scales:{x:{ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}},y:{grid:{display:false}}}}});
-
-  const lymph=catTotals['Lymphatic & post-op care']||0;
-  const mTotal=months.map((m,i)=>mLymph[i]+mOther[i]);
-  const bestI=mTotal.reduce((bi,v,i,a)=>v>a[bi]?i:bi,0);
-  const lastI=months.length-1;
-  const avgMonth=total/months.length;
-  const topSvc=svcSorted[0];
-  const tw=[];
-  tw.push(`<p><b>Lymphatic work is the business.</b> Lymphatic and post-op care brought in <b>${Math.round(lymph/total*100)}&cent; of every dollar</b> — ${money2(lymph)} of ${money2(total)}. Top earner: ${topSvc[0]} (${money2(topSvc[1])}).</p>`);
-  tw.push(`<p><b>${mLabel[bestI]} is the best month so far</b> at ${money2(mTotal[bestI])}, against a monthly average of ${money2(avgMonth)}. Package purchases drive the peaks — selling one package a month smooths income.</p>`);
-  if(unpaid>0) tw.push(`<p><b>${money2(unpaid)} is booked but not collected.</b> Worth a quick reconciliation — some may be paid in cash and just never marked paid.</p>`);
-  const trend=lastI>0?(mTotal[lastI]-mTotal[lastI-1]):0;
-  if(lastI>0) tw.push(`<p><b>Latest month (${mLabel[lastI]}):</b> ${money2(mTotal[lastI])} booked — ${trend>=0?'up':'down'} ${money2(Math.abs(trend))} vs ${mLabel[lastI-1]}.</p>`);
-  document.getElementById('takeaways').innerHTML=tw.join('');
-
-  document.getElementById('footer').textContent=
-    `Live from the sales ledger (Google Sheets) · ${sales.length} sales · loaded ${new Date().toLocaleString()}`;
 
   document.getElementById('status').style.display='none';
   document.getElementById('content').style.display='block';
+  makeCharts();
+  render('month');
+  document.querySelectorAll('#rangeSeg button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#rangeSeg button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    render(b.dataset.g);
+  }));
 }
 load();
 </script>
