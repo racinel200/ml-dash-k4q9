@@ -34,20 +34,28 @@
   #status{text-align:center;padding:40px;color:var(--muted);font-size:15px}
   #status.error{color:var(--rose)}
   #content{display:none}
-  .src-chips{text-align:center;margin-bottom:20px}
-  .chip{display:inline-block;background:#e7ede7;color:var(--sage-d);border-radius:20px;padding:4px 14px;font-size:12px;margin:0 4px;letter-spacing:1px;text-transform:uppercase}
+  .seg{text-align:center;margin-bottom:22px}
+  .seg button{font-family:inherit;background:#fff;border:1px solid #d8e0d8;color:var(--sage-d);padding:8px 24px;font-size:13px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;margin:0;border-right-width:0}
+  .seg button:first-child{border-radius:20px 0 0 20px}
+  .seg button:last-child{border-radius:0 20px 20px 0;border-right-width:1px}
+  .seg button.active{background:var(--sage-d);color:#fff;border-color:var(--sage-d)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>Massage &amp; Lymphatic by Kaitlyn</h1>
-    <p id="subtitle">Sales at a Glance &middot; live from the sales ledger &middot; v4</p>
+    <p id="subtitle">Sales at a Glance &middot; live from the sales ledger &middot; v5</p>
   </header>
 
   <div id="status">Loading live data from Google Sheets&hellip;</div>
 
   <div id="content">
+    <div class="seg" id="rangeSeg">
+      <button data-g="week">Weekly</button>
+      <button data-g="month" class="active">Monthly</button>
+      <button data-g="year">Yearly</button>
+    </div>
     <div class="cards">
       <div class="card"><div class="num" id="c-total"></div><div class="lbl">Total sales</div></div>
       <div class="card"><div class="num" id="c-paid"></div><div class="lbl">Money collected</div></div>
@@ -56,7 +64,7 @@
     </div>
 
     <div class="panel">
-      <h2>Sales by month</h2>
+      <h2 id="timeTitle">Sales by month</h2>
       <div class="sub">Green = lymphatic &amp; post-op care &middot; Gold = massage &amp; everything else</div>
       <div class="chart-box"><canvas id="monthly"></canvas></div>
     </div>
@@ -189,13 +197,43 @@ async function load(){
   document.getElementById('subtitle').textContent=`Sales at a Glance · ${first} to ${last} · live from the sales ledger`;
 
   Chart.defaults.font.family="Georgia, serif"; Chart.defaults.color='#5c665e';
-  new Chart(document.getElementById('monthly'),{type:'bar',
-    data:{labels:mLabel,datasets:[
-      {label:'Lymphatic & post-op',data:mLymph,backgroundColor:SAGE,borderRadius:6,stack:'s'},
-      {label:'Massage & other',data:mOther,backgroundColor:GOLD,borderRadius:6,stack:'s'}]},
-    options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money2(c.parsed.y)}}},
-      scales:{x:{grid:{display:false},stacked:true},y:{stacked:true,ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}}}}});
+
+  const mondayOf=d=>{const dt=new Date(d+'T00:00:00');const day=(dt.getDay()+6)%7;dt.setDate(dt.getDate()-day);return dt.toISOString().slice(0,10);};
+  const keyFor=(d,g)=>g==='week'?mondayOf(d):(g==='year'?d.slice(0,4):d.slice(0,7));
+  const labelFor=(k,g)=>{
+    if(g==='year') return k;
+    if(g==='month'){const[y,mo]=k.split('-');return new Date(y,mo-1).toLocaleString('en',{month:'short'})+' '+y.slice(2);}
+    const dt=new Date(k+'T00:00:00');
+    return dt.toLocaleString('en',{month:'short',day:'numeric'})+" '"+k.slice(2,4);
+  };
+  let timeChart=null;
+  function renderTime(g){
+    const keys=[...new Set(sales.map(x=>keyFor(x.date,g)))].sort();
+    const L=keys.map(k=>sales.filter(x=>keyFor(x.date,g)===k&&isLymph(x)).reduce((s,x)=>s+x.amt,0));
+    const O=keys.map(k=>sales.filter(x=>keyFor(x.date,g)===k&&!isLymph(x)).reduce((s,x)=>s+x.amt,0));
+    const labels=keys.map(k=>labelFor(k,g));
+    document.getElementById('timeTitle').textContent='Sales by '+(g==='week'?'week':(g==='year'?'year':'month'));
+    if(timeChart){
+      timeChart.data.labels=labels;
+      timeChart.data.datasets[0].data=L;
+      timeChart.data.datasets[1].data=O;
+      timeChart.update();
+      return;
+    }
+    timeChart=new Chart(document.getElementById('monthly'),{type:'bar',
+      data:{labels:labels,datasets:[
+        {label:'Lymphatic & post-op',data:L,backgroundColor:SAGE,borderRadius:6,stack:'s'},
+        {label:'Massage & other',data:O,backgroundColor:GOLD,borderRadius:6,stack:'s'}]},
+      options:{responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>c.dataset.label+': '+money2(c.parsed.y)}}},
+        scales:{x:{grid:{display:false},stacked:true},y:{stacked:true,ticks:{callback:v=>money(v)},grid:{color:'#edf0ea'}}}}});
+  }
+  renderTime('month');
+  document.querySelectorAll('#rangeSeg button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('#rangeSeg button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    renderTime(b.dataset.g);
+  }));
 
   new Chart(document.getElementById('pie'),{type:'doughnut',
     data:{labels:catNames,datasets:[{data:catNames.map(c=>catTotals[c]),
