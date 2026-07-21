@@ -188,7 +188,8 @@ const PRIO_LABEL={1:'Do first',2:'This week',3:'When you can'};
 // (key/value rows; edit the cell, no redeploy needed). These are the fallbacks.
 const CONFIG={
   contextTemplate:'You\'re helping Kaitlyn, a licensed massage therapist and certified lymphatic drainage (MLD) practitioner who runs a solo studio, "Massage & Lymphatic by Kaitlyn," in Buda, TX, serving greater Austin. Clients book through Vagaro; her site is massageandlymphatic.com. Services: 90-min/2-hr all-inclusive Intentional Massage Experience ($195/$285), lymphatic and pre/post-op massage ($115/hr), session packages ($555-$1,250), memberships ($175/mo). She\'s actively growing her client base. She\'s not technical - give simple, practical, step-by-step help with ready-to-use wording (scripts, texts, captions) she can copy.\n\nHer to-do right now (category: {category}, priority: {priority}): {task}\n\nHelp her get this done today.',
-  projectId:''
+  projectId:'',
+  calendarApiUrl:''
 };
 const CONFIG_URL='https://docs.google.com/spreadsheets/d/1IQeC8UFB_tiNjWWit4kefHqqq_-i_2ZSdIJ8YDDEElM/gviz/tq?tqx=out:csv&sheet=Config';
 function parseCSV(text){
@@ -306,7 +307,8 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 
 async function loadToday(){
   try{
-    const r=await call({action:'today'});
+    const base=CONFIG.calendarApiUrl||API;
+    const r=await fetch(base+'?k='+KEY+'&action=today').then(x=>x.json());
     if(!r||!Array.isArray(r.appts)) return; // old script version or calendar not shared yet
     const el=document.getElementById('appts');
     el.innerHTML=r.appts.length?r.appts.map(a=>
@@ -318,7 +320,8 @@ async function loadToday(){
 }
 async function refresh(){
   try{
-    const [data]=await Promise.all([call({action:'list'}),loadConfig(),loadToday()]);
+    await loadConfig(); // config first: loadToday may depend on calendarApiUrl
+    const [data]=await Promise.all([call({action:'list'}),loadToday()]);
     DATA=data;
     if(DATA.error) throw new Error(DATA.error);
     document.getElementById('status').style.display='none';
