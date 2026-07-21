@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>To-Do Board — Massage &amp; Lymphatic by Kaitlyn</title>
+<style>
+  :root{--sage:#5a7a5e;--sage-d:#2f5233;--cream:#faf7f0;--card:#ffffff;--ink:#2c342d;--muted:#7c877e;--gold:#c9a86a;--rose:#c97b6a;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Georgia','Times New Roman',serif;background:var(--cream);color:var(--ink);padding:32px 20px;}
+  .wrap{max-width:700px;margin:0 auto}
+  header{text-align:center;margin-bottom:10px}
+  header h1{font-size:24px;letter-spacing:2px;color:var(--sage-d);text-transform:uppercase}
+  header p{color:var(--muted);font-size:14px;margin-top:6px}
+  .backlink{text-align:center;margin-bottom:24px}
+  .backlink a{display:inline-block;background:#fff;border:1px solid #d8e0d8;color:var(--sage-d);border-radius:20px;padding:7px 18px;font-size:13px;text-decoration:none;margin:3px 4px}
+  .backlink a:hover{background:var(--sage-d);color:#fff}
+  .panel{background:var(--card);border-radius:14px;padding:24px;box-shadow:0 2px 10px rgba(47,82,51,.08);margin-bottom:22px}
+  .panel h2{font-size:16px;color:var(--sage-d);letter-spacing:1px;text-transform:uppercase;margin-bottom:14px}
+  .task{display:flex;align-items:flex-start;gap:14px;padding:14px 6px;border-bottom:1px solid #f0ede4;cursor:pointer}
+  .task:last-child{border-bottom:none}
+  .task .box{flex:0 0 26px;height:26px;border:2px solid var(--sage);border-radius:50%;margin-top:1px;position:relative;transition:all .15s}
+  .task.done .box{background:var(--sage);border-color:var(--sage)}
+  .task.done .box:after{content:'\2713';color:#fff;position:absolute;top:0;left:6px;font-size:16px}
+  .task .txt{font-size:16px;line-height:1.5}
+  .task.done .txt{text-decoration:line-through;color:var(--muted)}
+  .task .meta{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .task .undo{margin-left:auto;font-size:12px;color:var(--muted);border:none;background:none;cursor:pointer;font-family:inherit;text-decoration:underline}
+  .empty{color:var(--muted);text-align:center;padding:18px 0;font-size:15px}
+  textarea{width:100%;min-height:90px;font-family:inherit;font-size:15px;padding:12px;border:1px solid #d8e0d8;border-radius:10px;background:#fdfcf9;resize:vertical}
+  .sendrow{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+  .sendrow small{color:var(--muted)}
+  button.send{font-family:inherit;background:var(--sage-d);color:#fff;border:none;border-radius:20px;padding:10px 28px;font-size:14px;letter-spacing:1px;cursor:pointer}
+  button.send:disabled{opacity:.5}
+  .note{padding:10px 6px;border-bottom:1px solid #f0ede4;font-size:14px}
+  .note:last-child{border-bottom:none}
+  .note .meta{font-size:11.5px;color:var(--muted);margin-top:2px}
+  #status{text-align:center;padding:30px;color:var(--muted)}
+  #status.error{color:var(--rose)}
+  #content{display:none}
+  footer{text-align:center;color:var(--muted);font-size:12px;margin-top:24px}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--sage-d);color:#fff;border-radius:20px;padding:10px 24px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Your To-Do Board</h1>
+    <p>Massage &amp; Lymphatic by Kaitlyn &middot; refreshed every morning at 8am</p>
+  </header>
+  <div class="backlink">
+    <a href="index.html">&larr; Sales Dashboard</a>
+    <a href="https://us02.vagaro.com/merchants/calendar/v3" target="_blank" rel="noopener">&#128197; Vagaro</a>
+    <a href="https://mail.google.com" target="_blank" rel="noopener">&#9993; Gmail</a>
+  </div>
+
+  <div id="status">Loading your list&hellip;</div>
+
+  <div id="content">
+    <div class="panel">
+      <h2>To do</h2>
+      <div id="open"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Done</h2>
+      <div id="donelist"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Leave a note for your assistant</h2>
+      <textarea id="notebox" placeholder="Anything on your mind — approve a promo, ask a question, share news. It gets read every morning."></textarea>
+      <div class="sendrow">
+        <small>Read daily at 8am</small>
+        <button class="send" id="sendbtn">Send note</button>
+      </div>
+      <div id="notes" style="margin-top:16px"></div>
+    </div>
+
+    <footer id="footer"></footer>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API='https://script.google.com/macros/s/AKfycbxiO7yPA6h89WK-GKJAfZyavdic4VMeAvgP9kkWvVD_aJlcjCl1KVZTwnHQG_CxxPeE/exec';
+const KEY='mlk-ops-2026';
+const call=params=>fetch(API+'?k='+KEY+'&'+new URLSearchParams(params).toString()).then(r=>r.json());
+const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmtDate=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,10):d.toLocaleDateString('en',{month:'short',day:'numeric'});};
+let DATA={tasks:[],notes:[]};
+
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
+
+function draw(){
+  const open=DATA.tasks.filter(t=>t.status==='open');
+  const done=DATA.tasks.filter(t=>t.status==='done').slice(-10).reverse();
+  document.getElementById('open').innerHTML=open.length?open.map(t=>
+    `<div class="task" data-id="${esc(t.id)}" onclick="mark('${esc(t.id)}')">
+       <div class="box"></div>
+       <div><div class="txt">${esc(t.task)}</div><div class="meta">added ${fmtDate(t.added)}</div></div>
+     </div>`).join('')
+    :'<div class="empty">Nothing on your list — enjoy your day.</div>';
+  document.getElementById('donelist').innerHTML=done.length?done.map(t=>
+    `<div class="task done">
+       <div class="box"></div>
+       <div><div class="txt">${esc(t.task)}</div><div class="meta">done ${fmtDate(t.doneDate)}</div></div>
+       <button class="undo" onclick="event.stopPropagation();unmark('${esc(t.id)}')">undo</button>
+     </div>`).join('')
+    :'<div class="empty">Nothing finished yet today.</div>';
+  const myNotes=DATA.notes.slice(-5).reverse();
+  document.getElementById('notes').innerHTML=myNotes.length
+    ?'<h2 style="font-size:13px;margin-bottom:6px">Recent notes</h2>'+myNotes.map(n=>
+      `<div class="note">${esc(n.note)}<div class="meta">${fmtDate(n.ts)}</div></div>`).join('')
+    :'';
+  document.getElementById('footer').textContent='Loaded '+new Date().toLocaleString();
+}
+
+async function refresh(){
+  try{
+    DATA=await call({action:'list'});
+    if(DATA.error) throw new Error(DATA.error);
+    document.getElementById('status').style.display='none';
+    document.getElementById('content').style.display='block';
+    draw();
+  }catch(e){
+    const st=document.getElementById('status');
+    st.className='error';
+    st.textContent='Couldn’t load the list — check your connection and refresh.';
+  }
+}
+
+async function mark(id){
+  const t=DATA.tasks.find(x=>x.id===id); if(!t) return;
+  t.status='done'; t.doneDate=new Date().toISOString(); draw();
+  try{ const r=await call({action:'done',id}); if(r.error) throw 0; toast('Nice — marked done.'); }
+  catch(e){ t.status='open'; draw(); toast('Hmm, that didn’t save — try again.'); }
+}
+async function unmark(id){
+  const t=DATA.tasks.find(x=>x.id===id); if(!t) return;
+  t.status='open'; t.doneDate=''; draw();
+  try{ const r=await call({action:'undone',id}); if(r.error) throw 0; }
+  catch(e){ t.status='done'; draw(); toast('That didn’t save — try again.'); }
+}
+document.getElementById('sendbtn').addEventListener('click', async ()=>{
+  const box=document.getElementById('notebox');
+  const text=box.value.trim(); if(!text) return;
+  const btn=document.getElementById('sendbtn'); btn.disabled=true;
+  try{
+    const r=await call({action:'note',text,by:'kaitlyn'});
+    if(r.error) throw 0;
+    box.value=''; toast('Note sent — it’ll be read in the morning.');
+    DATA.notes.push({ts:new Date().toISOString(),note:text,by:'kaitlyn'}); draw();
+  }catch(e){ toast('Couldn’t send — try again.'); }
+  btn.disabled=false;
+});
+refresh();
+setInterval(refresh, 5*60*1000);
+</script>
+</body>
+</html>
