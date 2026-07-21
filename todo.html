@@ -118,6 +118,11 @@
       </div>
     </div>
     <div class="maincol">
+    <div class="panel" id="updatePanel" style="display:none">
+      <h2>Today&rsquo;s Daily Update</h2>
+      <div id="updateBody" style="white-space:pre-line;font-size:15px;line-height:1.65"></div>
+      <div id="updateDate" style="font-size:11.5px;color:var(--muted);margin-top:10px"></div>
+    </div>
     <div class="panel">
       <div class="tabs">
         <button data-tab="todo" class="active">To Do<span class="count" id="n-todo"></span></button>
@@ -244,6 +249,13 @@ function draw(){
   const open=DATA.tasks.filter(t=>t.status==='open').map(t=>({...t,...parseTask(t.task)}));
   const done=DATA.tasks.filter(t=>t.status==='done').slice(-15).reverse().map(t=>({...t,...parseTask(t.task)}));
   const actions=DATA.notes.filter(n=>n.by==='bot-action').slice(-25).reverse();
+  const updates=DATA.notes.filter(n=>n.by==='daily-update');
+  if(updates.length){
+    const u=updates[updates.length-1];
+    document.getElementById('updateBody').textContent=u.note;
+    document.getElementById('updateDate').textContent='Posted '+fmtDT(u.ts);
+    document.getElementById('updatePanel').style.display='block';
+  }
   document.getElementById('n-todo').textContent=open.length||'';
 
   // category filter chips (To Do tab only)
