@@ -9,6 +9,18 @@
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Georgia','Times New Roman',serif;background:var(--cream);color:var(--ink);padding:32px 20px;}
   .wrap{max-width:700px;margin:0 auto}
+  @media(min-width:1000px){
+    .wrap{max-width:1000px}
+    .layout{display:grid;grid-template-columns:1fr 270px;gap:22px;align-items:start}
+    .maincol{grid-column:1}
+    .sidecol{grid-column:2;position:sticky;top:20px}
+  }
+  .appt{display:flex;gap:10px;padding:10px 4px;border-bottom:1px solid #f0ede4;align-items:baseline}
+  .appt:last-child{border-bottom:none}
+  .appt .when{flex:0 0 72px;font-size:13px;color:var(--sage-d);font-weight:bold;white-space:nowrap}
+  .appt .what{font-size:14px;line-height:1.4}
+  .appt .who{font-size:11.5px;color:var(--muted);margin-top:1px}
+  #apptPanel{display:none}
   header{text-align:center;margin-bottom:10px}
   header h1{font-size:24px;letter-spacing:2px;color:var(--sage-d);text-transform:uppercase}
   header p{color:var(--muted);font-size:14px;margin-top:6px}
@@ -98,6 +110,14 @@
   <div id="status">Loading your list&hellip;</div>
 
   <div id="content">
+   <div class="layout">
+    <div class="sidecol">
+      <div class="panel" id="apptPanel">
+        <h2>Today&rsquo;s Appointments</h2>
+        <div id="appts"></div>
+      </div>
+    </div>
+    <div class="maincol">
     <div class="panel">
       <div class="tabs">
         <button data-tab="todo" class="active">To Do<span class="count" id="n-todo"></span></button>
@@ -117,6 +137,8 @@
       </div>
       <div id="notes" style="margin-top:16px"></div>
     </div>
+    </div>
+   </div>
 
     <footer id="footer"></footer>
   </div>
@@ -282,9 +304,21 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
   b.classList.add('active'); TAB=b.dataset.tab; draw();
 }));
 
+async function loadToday(){
+  try{
+    const r=await call({action:'today'});
+    if(!r||!Array.isArray(r.appts)) return; // old script version or calendar not shared yet
+    const el=document.getElementById('appts');
+    el.innerHTML=r.appts.length?r.appts.map(a=>
+      `<div class="appt"><div class="when">${esc(a.t)}</div>
+        <div><div class="what">${esc(a.title)}</div>${a.who?`<div class="who">${esc(a.who)}</div>`:''}</div></div>`).join('')
+      :'<div class="empty">No appointments today.</div>';
+    document.getElementById('apptPanel').style.display='block';
+  }catch(e){}
+}
 async function refresh(){
   try{
-    const [data]=await Promise.all([call({action:'list'}),loadConfig()]);
+    const [data]=await Promise.all([call({action:'list'}),loadConfig(),loadToday()]);
     DATA=data;
     if(DATA.error) throw new Error(DATA.error);
     document.getElementById('status').style.display='none';
