@@ -21,14 +21,23 @@
   .tabs button{font-family:inherit;flex:1;background:none;border:none;padding:12px 4px;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
   .tabs button.active{color:var(--sage-d);border-bottom-color:var(--sage-d);font-weight:bold}
   .tabs button .count{display:inline-block;background:#e7ede7;color:var(--sage-d);border-radius:10px;padding:0 8px;font-size:11px;margin-left:5px}
-  .task{display:flex;align-items:flex-start;gap:14px;padding:14px 6px;border-bottom:1px solid #f0ede4;cursor:pointer}
+  .cats{margin:10px 0 4px;text-align:center}
+  .cats button{font-family:inherit;background:#f4f1e8;border:1px solid #e4e0d2;color:var(--muted);border-radius:14px;padding:4px 12px;font-size:12px;margin:3px 2px;cursor:pointer}
+  .cats button.active{background:var(--sage-d);border-color:var(--sage-d);color:#fff}
+  .prio-head{font-size:12px;letter-spacing:2px;text-transform:uppercase;margin:16px 0 2px;padding-bottom:4px;border-bottom:1px dashed #e4e0d2}
+  .prio-1{color:var(--rose)}
+  .prio-2{color:var(--gold)}
+  .prio-3{color:var(--sage)}
+  .task{display:flex;align-items:flex-start;gap:14px;padding:13px 6px;border-bottom:1px solid #f0ede4;cursor:pointer}
   .task:last-child{border-bottom:none}
   .task .box{flex:0 0 26px;height:26px;border:2px solid var(--sage);border-radius:50%;margin-top:1px;position:relative;transition:all .15s}
+  .task.p1 .box{border-color:var(--rose)}
   .task.done .box{background:var(--sage);border-color:var(--sage)}
   .task.done .box:after{content:'\2713';color:#fff;position:absolute;top:0;left:6px;font-size:16px}
-  .task .txt{font-size:16px;line-height:1.5}
+  .task .txt{font-size:15.5px;line-height:1.5}
   .task.done .txt{text-decoration:line-through;color:var(--muted)}
   .task .meta{font-size:11.5px;color:var(--muted);margin-top:3px}
+  .chip{display:inline-block;background:#eef3ee;color:var(--sage-d);border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;margin-right:6px}
   .task .undo{margin-left:auto;font-size:12px;color:var(--muted);border:none;background:none;cursor:pointer;font-family:inherit;text-decoration:underline}
   .action{display:flex;gap:12px;padding:12px 6px;border-bottom:1px solid #f0ede4}
   .action:last-child{border-bottom:none}
@@ -73,6 +82,7 @@
         <button data-tab="done">Done</button>
         <button data-tab="actions">Claude&rsquo;s Actions</button>
       </div>
+      <div class="cats" id="cats" style="display:none"></div>
       <div id="tabbody"></div>
     </div>
 
@@ -98,29 +108,58 @@ const call=params=>fetch(API+'?k='+KEY+'&'+new URLSearchParams(params).toString(
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const fmtDate=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,10):d.toLocaleDateString('en',{month:'short',day:'numeric'});};
 const fmtDT=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,16):d.toLocaleDateString('en',{month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en',{hour:'numeric',minute:'2-digit'});};
+const PRIO_LABEL={1:'Do first',2:'This week',3:'When you can'};
 let DATA={tasks:[],notes:[]};
-let TAB='todo';
+let TAB='todo', CAT='All';
+
+function parseTask(raw){
+  const m=String(raw).match(/^\[P([123])\]\s*\[([^\]]+)\]\s*(.*)$/s);
+  if(m) return {p:+m[1],cat:m[2].trim(),text:m[3].trim()};
+  const m2=String(raw).match(/^\[P([123])\]\s*(.*)$/s);
+  if(m2) return {p:+m2[1],cat:'General',text:m2[2].trim()};
+  return {p:2,cat:'General',text:String(raw)};
+}
 
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
 
 function draw(){
-  const open=DATA.tasks.filter(t=>t.status==='open');
-  const done=DATA.tasks.filter(t=>t.status==='done').slice(-15).reverse();
+  const open=DATA.tasks.filter(t=>t.status==='open').map(t=>({...t,...parseTask(t.task)}));
+  const done=DATA.tasks.filter(t=>t.status==='done').slice(-15).reverse().map(t=>({...t,...parseTask(t.task)}));
   const actions=DATA.notes.filter(n=>n.by==='bot-action').slice(-25).reverse();
   document.getElementById('n-todo').textContent=open.length||'';
+
+  // category filter chips (To Do tab only)
+  const catsEl=document.getElementById('cats');
+  if(TAB==='todo'&&open.length){
+    const cats=['All',...new Set(open.map(t=>t.cat))];
+    catsEl.style.display='block';
+    if(!cats.includes(CAT)) CAT='All';
+    catsEl.innerHTML=cats.map(c=>`<button class="${c===CAT?'active':''}" onclick="setCat('${esc(c)}')">${esc(c)}</button>`).join('');
+  } else { catsEl.style.display='none'; }
+
   let html='';
   if(TAB==='todo'){
-    html=open.length?open.map(t=>
-      `<div class="task" onclick="mark('${esc(t.id)}')">
-         <div class="box"></div>
-         <div><div class="txt">${esc(t.task)}</div><div class="meta">added ${fmtDate(t.added)}</div></div>
-       </div>`).join('')
-      :'<div class="empty">Nothing on your list — enjoy your day.</div>';
+    const vis=open.filter(t=>CAT==='All'||t.cat===CAT);
+    if(!vis.length){ html='<div class="empty">Nothing on your list — enjoy your day.</div>'; }
+    else {
+      for(const p of [1,2,3]){
+        const grp=vis.filter(t=>t.p===p);
+        if(!grp.length) continue;
+        html+=`<div class="prio-head prio-${p}">${PRIO_LABEL[p]}</div>`;
+        html+=grp.map(t=>
+          `<div class="task p${t.p}" onclick="mark('${esc(t.id)}')">
+             <div class="box"></div>
+             <div><div class="txt">${esc(t.text)}</div>
+             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}</div></div>
+           </div>`).join('');
+      }
+    }
   } else if(TAB==='done'){
     html=done.length?done.map(t=>
       `<div class="task done">
          <div class="box"></div>
-         <div><div class="txt">${esc(t.task)}</div><div class="meta">done ${fmtDate(t.doneDate)}</div></div>
+         <div><div class="txt">${esc(t.text)}</div>
+         <div class="meta"><span class="chip">${esc(t.cat)}</span>done ${fmtDate(t.doneDate)}</div></div>
          <button class="undo" onclick="event.stopPropagation();unmark('${esc(t.id)}')">undo</button>
        </div>`).join('')
       :'<div class="empty">Nothing finished yet.</div>';
@@ -133,6 +172,7 @@ function draw(){
       :'<div class="empty">No actions recorded yet — they&rsquo;ll appear after the next morning run.</div>';
   }
   document.getElementById('tabbody').innerHTML=html;
+
   const myNotes=DATA.notes.filter(n=>n.by==='kaitlyn').slice(-5).reverse();
   document.getElementById('notes').innerHTML=myNotes.length
     ?'<h2 style="font-size:13px;margin-bottom:6px">Recent notes</h2>'+myNotes.map(n=>
@@ -140,6 +180,7 @@ function draw(){
     :'';
   document.getElementById('footer').textContent='Loaded '+new Date().toLocaleString();
 }
+function setCat(c){CAT=c;draw();}
 
 document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));
