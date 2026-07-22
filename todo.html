@@ -90,6 +90,11 @@
   .pick button.p1.active{background:var(--rose);border-color:var(--rose)}
   .pick button.p2.active{background:var(--gold);border-color:var(--gold)}
   .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;flex-wrap:wrap;align-items:center}
+  .modal .actions a.send{color:#fff;text-decoration:none;display:inline-block}
+  .modal .actions a.send:visited{color:#fff}
+  #autoClaude{background:#b0602f}
+  #autoClaude:hover{background:#9a4f24}
+  #autoClose{margin-right:auto;color:var(--rose)}
   .modal .cancel{font-family:inherit;background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;text-decoration:underline}
 </style>
 </head>
@@ -187,9 +192,9 @@
     <div id="autoBody"></div>
     <div class="actions">
       <button class="cancel" id="autoClose">Close</button>
-      <a class="send" id="autoClaude" style="display:none;text-decoration:none;text-align:center;background:#b0602f" target="_blank" rel="noopener">Do it with Claude &#8599;</a>
+      <a class="send" id="autoClaude" style="display:none" target="_blank" rel="noopener">Finish it with Claude &#8599;</a>
       <button class="send" id="autoCopy">Copy it</button>
-      <a class="send" id="autoGo" style="display:none;text-decoration:none;text-align:center">Send it &#8599;</a>
+      <a class="send" id="autoGo" style="display:none">Send it &#8599;</a>
     </div>
   </div>
 </div>
