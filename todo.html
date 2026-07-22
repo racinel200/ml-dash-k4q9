@@ -120,10 +120,12 @@
   #autoOverlay .actions .send{padding:10px 14px;font-size:12.5px;letter-spacing:.5px;white-space:nowrap}
   #autoClaude{background:#b0602f}
   #autoClaude:hover{background:#9a4f24}
-  #autoClose{margin-right:auto;background:var(--rose);color:#fff;border:none;border-radius:20px;padding:10px 14px;font-size:12.5px;letter-spacing:.5px;cursor:pointer;text-decoration:none;font-family:inherit;white-space:nowrap}
-  #autoClose:hover{background:#b3624f}
+  .automodal{position:relative}
+  .automodal h2{padding-right:36px}
+  .xclose{position:absolute;top:12px;right:12px;width:30px;height:30px;border-radius:50%;background:var(--rose);color:#fff;border:none;font-size:15px;line-height:30px;text-align:center;padding:0;cursor:pointer;font-family:inherit}
+  .xclose:hover{background:#b3624f}
   @media(max-width:430px){
-    #autoOverlay .actions .send,#autoClose{padding:9px 10px;font-size:11px;letter-spacing:.2px}
+    #autoOverlay .actions .send{padding:9px 10px;font-size:11px;letter-spacing:.2px}
   }
   .modal .cancel{font-family:inherit;background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;text-decoration:underline}
 </style>
@@ -229,14 +231,14 @@
 </div>
 
 <div class="overlay" id="autoOverlay">
-  <div class="modal">
+  <div class="modal automodal">
+    <button class="xclose" id="autoClose" aria-label="Close">&#10005;</button>
     <h2 id="autoTitle">Ready to go</h2>
     <div id="autoBody"></div>
     <div class="actions">
-      <button class="cancel" id="autoClose">Close</button>
-      <a class="send" id="autoClaude" style="display:none" target="_blank" rel="noopener">Finish with Claude &#8599;</a>
+      <a class="send" id="autoClaude" style="display:none" target="_blank" rel="noopener">Finish with Claude</a>
       <button class="send" id="autoCopy">Copy</button>
-      <a class="send" id="autoGo" style="display:none">Send it &#8599;</a>
+      <a class="send" id="autoGo" style="display:none">Send it</a>
     </div>
   </div>
 </div>
@@ -396,7 +398,7 @@ function runAuto(id){
   // Send — label matches what the link does
   const go=document.getElementById('autoGo');
   if(safeUrl){
-    go.textContent=(scheme==='sms'?'Send Text':scheme==='tel'?'Call Now':scheme==='mailto'?'Send Email':'Open It')+' ↗';
+    go.textContent=(scheme==='sms'?'Send Text':scheme==='tel'?'Call Now':scheme==='mailto'?'Send Email':'Open It');
     go.href=safeUrl; go.style.display='inline-block';
     if(/^https?:/i.test(safeUrl)){ go.target='_blank'; go.rel='noopener'; }
     else { go.removeAttribute('target'); go.removeAttribute('rel'); }
