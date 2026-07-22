@@ -75,6 +75,12 @@
   .note{padding:10px 6px;border-bottom:1px solid #f0ede4;font-size:14px}
   .note:last-child{border-bottom:none}
   .note .meta{font-size:11.5px;color:var(--muted);margin-top:2px}
+  #goalbar{max-width:520px;margin:0 auto 22px;display:none}
+  #goalbar .gb-label{text-align:center;font-size:13px;color:var(--sage-d);margin-bottom:6px}
+  .gb-track{height:10px;background:#e9e5d8;border-radius:6px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.06)}
+  .gb-fill{height:100%;width:0;background:linear-gradient(90deg,var(--sage),var(--sage-d));border-radius:6px;transition:width .6s}
+  #cheer{display:none;text-align:center;color:var(--sage-d);font-size:13.5px;background:#eef5ee;border-radius:10px;padding:8px 12px;margin-bottom:12px}
+  .sumline{font-size:12.5px;color:var(--muted);margin:10px 2px 0;text-align:center}
   #status{text-align:center;padding:30px;color:var(--muted)}
   #status.error{color:var(--rose)}
   #content{display:none}
@@ -124,6 +130,11 @@
     <a href="https://business.google.com/" target="_blank" rel="noopener">&#9733; Google Business</a>
   </div>
 
+  <div id="goalbar">
+    <div class="gb-label" id="gbText"></div>
+    <div class="gb-track"><div class="gb-fill" id="gbFill"></div></div>
+  </div>
+
   <div id="status">Loading your list&hellip;</div>
 
   <div id="content">
@@ -141,6 +152,7 @@
       <div id="updateDate" style="font-size:11.5px;color:var(--muted);margin-top:10px"></div>
     </div>
     <div class="panel">
+      <div id="cheer"></div>
       <div class="tabs">
         <button data-tab="todo" class="active">To Do<span class="count" id="n-todo"></span></button>
         <button data-tab="done">Done</button>
@@ -223,6 +235,7 @@ const PRIO_LABEL={1:'Do first',2:'This week',3:'When you can'};
 // Config: live values come from the "Config" tab of the Ops Board spreadsheet
 // (key/value rows; edit the cell, no redeploy needed). These are the fallbacks.
 const CONFIG={
+  weeklyGoal:'',
   contextTemplate:'You\'re helping Kaitlyn, a licensed massage therapist and certified lymphatic drainage (MLD) practitioner who runs a solo studio, "Massage & Lymphatic by Kaitlyn," in Buda, TX, serving greater Austin. Clients book through Vagaro; her site is massageandlymphatic.com. Services: 90-min/2-hr all-inclusive Intentional Massage Experience ($195/$285), lymphatic and pre/post-op massage ($115/hr), session packages ($555-$1,250), memberships ($175/mo). She\'s actively growing her client base. She\'s not technical - give simple, practical, step-by-step help with ready-to-use wording (scripts, texts, captions) she can copy.\n\nHer to-do right now (category: {category}, priority: {priority}): {task}\n\nHelp her get this done today.',
   projectId:'',
   calendarApiUrl:''
@@ -266,8 +279,46 @@ function claudeUrl(t){
     .replace(/\{priority\}/g,PRIO_LABEL[t.p].toLowerCase()));
 }
 let DATA={tasks:[],notes:[]};
-let TAB='todo', CAT='All';
+let TAB='todo', CAT='All', QUICK=false;
 let AUTOS={};
+
+// ----- weekly revenue goal bar (reads the sales ledger CSV directly) -----
+const LEDGER_URL='https://docs.google.com/spreadsheets/d/1qq5JCvKQzTHZSmeA8Yki_C_2c8OMkZ4szkUBojNjlp4/gviz/tq?tqx=out:csv&gid=51515579';
+function weekStart(){const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate()-((d.getDay()+6)%7));}
+function parseLedgerDate(s){
+  const m=String(s).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return new Date(+m[1],+m[2]-1,+m[3]);
+  const d=new Date(s); return isNaN(d)?null:d;
+}
+async function loadGoal(){
+  try{
+    const text=await fetch(LEDGER_URL).then(r=>r.text());
+    if(text.trim().startsWith('<')) return; // not shared / error page
+    const rows=parseCSV(text); if(rows.length<2) return;
+    const hdr=rows[0].map(h=>String(h).toLowerCase());
+    const di=hdr.findIndex(h=>h.includes('date')), ai=hdr.findIndex(h=>h.includes('amount')), si=hdr.findIndex(h=>h.includes('status'));
+    if(di<0||ai<0||si<0) return;
+    const ws=weekStart();
+    let total=0;
+    rows.slice(1).forEach(r=>{
+      if(String(r[si]||'').trim().toUpperCase()!=='PAID') return;
+      const d=parseLedgerDate(r[di]); if(!d||d<ws) return;
+      total+=parseFloat(String(r[ai]).replace(/[^0-9.\-]/g,''))||0;
+    });
+    const goal=+CONFIG.weeklyGoal||1500;
+    const pct=Math.min(100,Math.round(total/goal*100));
+    document.getElementById('gbText').textContent= total>=goal
+      ? 'Goal hit — $'+Math.round(total).toLocaleString()+' this week! 🎉'
+      : 'This week: $'+Math.round(total).toLocaleString()+' of $'+goal.toLocaleString();
+    const fill=document.getElementById('gbFill');
+    fill.style.width=pct+'%';
+    if(total>=goal) fill.style.background='linear-gradient(90deg,var(--gold),#b3924f)';
+    document.getElementById('goalbar').style.display='block';
+  }catch(e){}
+}
+// effective minutes: payload's with-help time wins over the manual [~Nm] tag
+function effMins(t){const a=AUTOS[String(t.id)];return (a&&+a.minutes>0)?Math.round(+a.minutes):(t.mins||0);}
+function toggleQuick(){QUICK=!QUICK;draw();}
 
 // Automation payloads: notes with by="automation", text = JSON
 // {taskId, label, url?, content?} — latest note per taskId wins.
@@ -364,22 +415,34 @@ function draw(){
   }
   document.getElementById('n-todo').textContent=open.length||'';
 
-  // category filter chips (To Do tab only)
+  // celebration line: tasks finished this week (by anyone)
+  const cheerEl=document.getElementById('cheer');
+  const ws=weekStart();
+  const doneWk=DATA.tasks.filter(t=>t.status==='done'&&t.doneDate&&(d=>d&&d>=ws)(new Date(t.doneDate))).length;
+  if(doneWk>0){cheerEl.textContent=`You've knocked out ${doneWk} task${doneWk>1?'s':''} this week 🎉`;cheerEl.style.display='block';}
+  else cheerEl.style.display='none';
+
+  // category filter chips + quick-wins toggle (To Do tab only)
   const catsEl=document.getElementById('cats');
   if(TAB==='todo'&&open.length){
     const cats=['All',...new Set(open.map(t=>t.cat))];
     catsEl.style.display='block';
     if(!cats.includes(CAT)) CAT='All';
-    catsEl.innerHTML=cats.map(c=>`<button class="${c===CAT?'active':''}" onclick="setCat('${esc(c)}')">${esc(c)}</button>`).join('');
+    catsEl.innerHTML=`<button class="${QUICK?'active':''}" onclick="toggleQuick()">⚡ Under 10 min</button>`
+      +cats.map(c=>`<button class="${c===CAT?'active':''}" onclick="setCat('${esc(c)}')">${esc(c)}</button>`).join('');
   } else { catsEl.style.display='none'; }
 
   let html='';
   if(TAB==='todo'){
-    const vis=open.filter(t=>CAT==='All'||t.cat===CAT);
-    if(!vis.length){ html='<div class="empty">Nothing on your list — enjoy your day.</div>'; }
+    const vis=open.filter(t=>(CAT==='All'||t.cat===CAT)&&(!QUICK||(effMins(t)>0&&effMins(t)<=10)));
+    if(!vis.length){ html=`<div class="empty">${QUICK?'Nothing under 10 minutes right now.':'Nothing on your list — enjoy your day.'}</div>`; }
     else {
+      // summary line: the do-first workload at a glance
+      const p1=vis.filter(t=>t.p===1);
+      const p1min=p1.reduce((s,t)=>s+effMins(t),0);
+      html+=`<div class="sumline">${p1.length?`${p1.length} do-first task${p1.length>1?'s':''}${p1min?` · about ${p1min} min`:''}`:'Nothing urgent right now — nice.'}</div>`;
       for(const p of [1,2,3]){
-        const grp=vis.filter(t=>t.p===p);
+        const grp=vis.filter(t=>t.p===p).sort((a,b)=>(effMins(a)||1e9)-(effMins(b)||1e9));
         if(!grp.length) continue;
         html+=`<div class="prio-head prio-${p}">${PRIO_LABEL[p]}</div>`;
         html+=grp.map(t=>
@@ -438,8 +501,8 @@ async function loadToday(){
 }
 async function refresh(){
   try{
-    await loadConfig(); // config first: loadToday may depend on calendarApiUrl
-    const [data]=await Promise.all([call({action:'list'}),loadToday()]);
+    await loadConfig(); // config first: loadToday/loadGoal may depend on it
+    const [data]=await Promise.all([call({action:'list'}),loadToday(),loadGoal()]);
     DATA=data;
     if(DATA.error) throw new Error(DATA.error);
     document.getElementById('status').style.display='none';
