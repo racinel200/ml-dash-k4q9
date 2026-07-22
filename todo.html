@@ -241,6 +241,11 @@ async function loadConfig(){
   }catch(e){}
 }
 function claudeUrl(t){
+  const a=AUTOS[String(t.id)];
+  if(a && a.prompt){
+    return 'https://claude.ai/new?q='+encodeURIComponent(a.prompt)
+      +(CONFIG.projectId?'&project='+encodeURIComponent(CONFIG.projectId):'');
+  }
   const prompt=CONFIG.contextTemplate
     .replace(/\{task\}/g,t.text)
     .replace(/\{category\}/g,t.cat)
