@@ -89,12 +89,16 @@
   .pick button.active{background:var(--sage-d);border-color:var(--sage-d);color:#fff}
   .pick button.p1.active{background:var(--rose);border-color:var(--rose)}
   .pick button.p2.active{background:var(--gold);border-color:var(--gold)}
-  .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;flex-wrap:wrap;align-items:center}
+  .modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px;flex-wrap:nowrap;align-items:center}
   a.send:link,a.send:visited{color:#fff}
+  #autoOverlay .actions .send{padding:10px 14px;font-size:12.5px;letter-spacing:.5px;white-space:nowrap}
   #autoClaude{background:#b0602f}
   #autoClaude:hover{background:#9a4f24}
-  #autoClose{margin-right:auto;background:var(--rose);color:#fff;border:none;border-radius:20px;padding:10px 28px;font-size:14px;letter-spacing:1px;cursor:pointer;text-decoration:none;font-family:inherit}
+  #autoClose{margin-right:auto;background:var(--rose);color:#fff;border:none;border-radius:20px;padding:10px 14px;font-size:12.5px;letter-spacing:.5px;cursor:pointer;text-decoration:none;font-family:inherit;white-space:nowrap}
   #autoClose:hover{background:#b3624f}
+  @media(max-width:430px){
+    #autoOverlay .actions .send,#autoClose{padding:9px 10px;font-size:11px;letter-spacing:.2px}
+  }
   .modal .cancel{font-family:inherit;background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;text-decoration:underline}
 </style>
 </head>
