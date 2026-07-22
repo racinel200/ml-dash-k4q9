@@ -201,8 +201,8 @@
     <div id="autoBody"></div>
     <div class="actions">
       <button class="cancel" id="autoClose">Close</button>
-      <a class="send" id="autoClaude" style="display:none" target="_blank" rel="noopener">Finish it with Claude &#8599;</a>
-      <button class="send" id="autoCopy">Copy it</button>
+      <a class="send" id="autoClaude" style="display:none" target="_blank" rel="noopener">Finish with Claude &#8599;</a>
+      <button class="send" id="autoCopy">Copy</button>
       <a class="send" id="autoGo" style="display:none">Send it &#8599;</a>
     </div>
   </div>
@@ -304,7 +304,7 @@ function runAuto(id){
   // Send — label matches what the link does
   const go=document.getElementById('autoGo');
   if(safeUrl){
-    go.textContent=(scheme==='sms'?'Send the text':scheme==='tel'?'Call now':scheme==='mailto'?'Send the email':'Open it')+' ↗';
+    go.textContent=(scheme==='sms'?'Send Text':scheme==='tel'?'Call Now':scheme==='mailto'?'Send Email':'Open It')+' ↗';
     go.href=safeUrl; go.style.display='inline-block';
     if(/^https?:/i.test(safeUrl)){ go.target='_blank'; go.rel='noopener'; }
     else { go.removeAttribute('target'); go.removeAttribute('rel'); }
