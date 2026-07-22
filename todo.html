@@ -25,7 +25,8 @@
   }
   .appt{display:flex;gap:10px;padding:10px 4px;border-bottom:1px solid #f0ede4;align-items:baseline}
   .appt:last-child{border-bottom:none}
-  .appt .when{flex:0 0 72px;font-size:13px;color:var(--sage-d);font-weight:bold;white-space:nowrap}
+  .appt .when{flex:0 0 76px;font-size:13px;color:var(--sage-d);font-weight:bold;white-space:nowrap}
+  .appt .wend{display:block;font-weight:normal;color:var(--muted);font-size:11px;margin-top:1px}
   .appt .what{font-size:14px;line-height:1.4}
   .appt .who{font-size:11.5px;color:var(--muted);margin-top:1px}
   #apptPanel{display:none}
@@ -533,7 +534,7 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
 let APPTDAYS=null, APPTTODAY=null, ATAB='today';
 const localISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 function apptRow(a){
-  return `<div class="appt"><div class="when">${esc(a.t)}</div>
+  return `<div class="appt"><div class="when">${esc(a.t)}${a.e?`<span class="wend">&ndash; ${esc(a.e)}</span>`:''}</div>
     <div><div class="what">${esc(a.title)}</div>${a.who?`<div class="who">${esc(a.who)}</div>`:''}</div></div>`;
 }
 function drawAppts(){
