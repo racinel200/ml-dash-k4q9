@@ -52,6 +52,9 @@
   .chip{display:inline-block;background:#eef3ee;color:var(--sage-d);border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;margin-right:6px}
   .askclaude{display:inline-block;color:#b0602f;background:#faf3ec;border:1px solid #ecd9c8;border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;text-decoration:none;margin-left:8px}
   .askclaude:hover{background:#b0602f;color:#fff;border-color:#b0602f}
+  .runauto{display:inline-block;color:var(--sage-d);background:#e9f2e9;border:1px solid #c9dcc9;border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;text-decoration:none;margin-left:8px;cursor:pointer;font-weight:bold}
+  .runauto:hover{background:var(--sage-d);color:#fff;border-color:var(--sage-d)}
+  #autoBody{white-space:pre-wrap;font-size:14.5px;line-height:1.6;background:#fdfcf9;border:1px solid #e4e0d2;border-radius:10px;padding:14px;max-height:45vh;overflow:auto}
   .task .undo{margin-left:auto;font-size:12px;color:var(--muted);border:none;background:none;cursor:pointer;font-family:inherit;text-decoration:underline}
   .action{display:flex;gap:12px;padding:12px 6px;border-bottom:1px solid #f0ede4}
   .action:last-child{border-bottom:none}
@@ -94,7 +97,7 @@
 <div class="wrap">
   <header>
     <h1>Business Hub</h1>
-    <p>Massage &amp; Lymphatic by Kaitlyn &middot; refreshed every morning at 8am</p>
+    <p>Massage &amp; Lymphatic by Kaitlyn &middot; your assistant checks in through the day</p>
   </header>
   <div class="backlink">
     <a href="index.html">&larr; Sales Dashboard</a>
@@ -178,6 +181,18 @@
   </div>
 </div>
 
+<div class="overlay" id="autoOverlay">
+  <div class="modal">
+    <h2 id="autoTitle">Ready to go</h2>
+    <div id="autoBody"></div>
+    <div class="actions">
+      <button class="cancel" id="autoClose">Close</button>
+      <button class="send" id="autoCopy">Copy it</button>
+      <a class="send" id="autoGo" style="display:none;text-decoration:none;text-align:center">Send it &#8599;</a>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -185,6 +200,7 @@ const API='https://script.google.com/macros/s/AKfycbz86SRxCgZQk-nwQ3aQbxPBh_QpGT
 const KEY='mlk-ops-2026';
 const call=params=>fetch(API+'?k='+KEY+'&'+new URLSearchParams(params).toString()).then(r=>r.json());
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const escA=s=>esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const fmtDate=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,10):d.toLocaleDateString('en',{month:'short',day:'numeric'});};
 const fmtDT=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,16):d.toLocaleDateString('en',{month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en',{hour:'numeric',minute:'2-digit'});};
 const PRIO_LABEL={1:'Do first',2:'This week',3:'When you can'};
@@ -234,6 +250,43 @@ function claudeUrl(t){
 }
 let DATA={tasks:[],notes:[]};
 let TAB='todo', CAT='All';
+let AUTOS={};
+
+// Automation payloads: notes with by="automation", text = JSON
+// {taskId, label, url?, content?} — latest note per taskId wins.
+// url = one-tap action (sms: / tel: / mailto: / https:), content = ready-to-copy text.
+function buildAutos(){
+  AUTOS={};
+  (DATA.notes||[]).filter(n=>n.by==='automation').forEach(n=>{
+    try{
+      const a=JSON.parse(n.note);
+      if(a && a.taskId!=null && (a.url||a.content)) AUTOS[String(a.taskId)]=a;
+    }catch(e){}
+  });
+}
+function autoBtn(t){
+  const a=AUTOS[String(t.id)]; if(!a) return '';
+  const safeUrl=a.url && /^(sms:|tel:|mailto:|https?:)/i.test(a.url) ? a.url : '';
+  if(a.content || !safeUrl){
+    if(!a.content) return '';
+    return `<a class="runauto" href="#" title="${escA(a.label||'')}" onclick="event.stopPropagation();event.preventDefault();runAuto('${escA(String(t.id))}')">Run Automated Solution &#9889;</a>`;
+  }
+  return `<a class="runauto" href="${escA(safeUrl)}" title="${escA(a.label||'')}" ${/^https?:/i.test(safeUrl)?'target="_blank" rel="noopener"':''} onclick="event.stopPropagation()">Run Automated Solution &#9889;</a>`;
+}
+function runAuto(id){
+  const a=AUTOS[String(id)]; if(!a) return;
+  const safeUrl=a.url && /^(sms:|tel:|mailto:|https?:)/i.test(a.url) ? a.url : '';
+  if(!a.content){ if(safeUrl) location.href=safeUrl; return; }
+  document.getElementById('autoTitle').textContent=a.label||'Ready to go';
+  document.getElementById('autoBody').textContent=a.content;
+  const go=document.getElementById('autoGo');
+  if(safeUrl){
+    go.href=safeUrl; go.style.display='inline-block';
+    if(/^https?:/i.test(safeUrl)){ go.target='_blank'; go.rel='noopener'; }
+    else { go.removeAttribute('target'); go.removeAttribute('rel'); }
+  } else { go.style.display='none'; }
+  document.getElementById('autoOverlay').classList.add('show');
+}
 
 function parseTask(raw){
   const m=String(raw).match(/^\[P([123])\]\s*\[([^\]]+)\]\s*(.*)$/s);
@@ -246,6 +299,7 @@ function parseTask(raw){
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
 
 function draw(){
+  buildAutos();
   const open=DATA.tasks.filter(t=>t.status==='open').map(t=>({...t,...parseTask(t.task)}));
   const done=DATA.tasks.filter(t=>t.status==='done').slice(-15).reverse().map(t=>({...t,...parseTask(t.task)}));
   const actions=DATA.notes.filter(n=>n.by==='bot-action').slice(-25).reverse();
@@ -280,7 +334,7 @@ function draw(){
           `<div class="task p${t.p}" onclick="mark('${esc(t.id)}')">
              <div class="box"></div>
              <div><div class="txt">${esc(t.text)}</div>
-             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a></div></div>
+             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a>${autoBtn(t)}</div></div>
            </div>`).join('');
       }
     }
@@ -403,6 +457,18 @@ document.getElementById('modalAdd').addEventListener('click', async ()=>{
   btn.disabled=false;
 });
 document.getElementById('newtask').addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('modalAdd').click(); });
+// automation modal
+const autoOverlay=document.getElementById('autoOverlay');
+document.getElementById('autoClose').addEventListener('click',()=>autoOverlay.classList.remove('show'));
+autoOverlay.addEventListener('click',e=>{ if(e.target===autoOverlay) autoOverlay.classList.remove('show'); });
+document.getElementById('autoCopy').addEventListener('click',async()=>{
+  const txt=document.getElementById('autoBody').textContent;
+  try{ await navigator.clipboard.writeText(txt); toast('Copied — ready to paste.'); }
+  catch(e){
+    const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove(); toast('Copied — ready to paste.');
+  }
+});
 
 refresh();
 setInterval(refresh, 5*60*1000);
