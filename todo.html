@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Business Hub — Massage &amp; Lymphatic by Kaitlyn</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#2f5233">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Business Hub">
 <style>
   :root{--sage:#5a7a5e;--sage-d:#2f5233;--cream:#faf7f0;--card:#ffffff;--ink:#2c342d;--muted:#7c877e;--gold:#c9a86a;--rose:#c97b6a;}
   *{box-sizing:border-box;margin:0;padding:0}
@@ -50,6 +58,7 @@
   .task.done .txt{text-decoration:line-through;color:var(--muted)}
   .task .meta{font-size:11.5px;color:var(--muted);margin-top:3px}
   .chip{display:inline-block;background:#eef3ee;color:var(--sage-d);border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;margin-right:6px}
+  .newchip{display:inline-block;background:var(--rose);color:#fff;border-radius:10px;padding:1px 8px;font-size:10px;letter-spacing:1px;text-transform:uppercase;margin-right:6px}
   .tmin{display:inline-block;border-radius:10px;padding:1px 8px;font-size:10.5px;margin-right:6px;white-space:nowrap}
   .tmin.tg{background:#e7f0e7;color:#2f5233}
   .tmin.ty{background:#f5eeda;color:#8a6d1f}
@@ -320,6 +329,21 @@ async function loadGoal(){
 function effMins(t){const a=AUTOS[String(t.id)];return (a&&+a.minutes>0)?Math.round(+a.minutes):(t.mins||0);}
 function toggleQuick(){QUICK=!QUICK;draw();}
 
+// ----- "New" badges: tasks that appeared since her last visit -----
+let SEEN0=new Set(), FIRSTVISIT=false;
+try{
+  const s=localStorage.getItem('mlk-seen');
+  FIRSTVISIT=!s;
+  SEEN0=new Set(JSON.parse(s||'[]'));
+}catch(e){}
+function isNew(t){return !FIRSTVISIT && !SEEN0.has(String(t.id));}
+function persistSeen(){
+  try{
+    const merged=[...new Set([...SEEN0,...DATA.tasks.map(t=>String(t.id))])].slice(-500);
+    localStorage.setItem('mlk-seen',JSON.stringify(merged));
+  }catch(e){}
+}
+
 // Automation payloads: notes with by="automation", text = JSON
 // {taskId, label, url?, content?} — latest note per taskId wins.
 // url = one-tap action (sms: / tel: / mailto: / https:), content = ready-to-copy text.
@@ -449,7 +473,7 @@ function draw(){
           `<div class="task p${t.p}" onclick="mark('${esc(t.id)}')">
              <div class="box"></div>
              <div><div class="txt">${esc(t.text)}</div>
-             <div class="meta"><span class="chip">${esc(t.cat)}</span>${timeChip(t)}added ${fmtDate(t.added)}${AUTOS[String(t.id)]?autoBtn(t):`<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a>`}</div></div>
+             <div class="meta">${isNew(t)?'<span class="newchip">New</span>':''}<span class="chip">${esc(t.cat)}</span>${timeChip(t)}added ${fmtDate(t.added)}${AUTOS[String(t.id)]?autoBtn(t):`<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a>`}</div></div>
            </div>`).join('');
       }
     }
@@ -508,6 +532,7 @@ async function refresh(){
     document.getElementById('status').style.display='none';
     document.getElementById('content').style.display='block';
     draw();
+    persistSeen();
   }catch(e){
     const st=document.getElementById('status');
     st.className='error';
