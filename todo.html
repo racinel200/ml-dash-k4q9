@@ -29,6 +29,11 @@
   .appt .what{font-size:14px;line-height:1.4}
   .appt .who{font-size:11.5px;color:var(--muted);margin-top:1px}
   #apptPanel{display:none}
+  .atabs{display:flex;border-bottom:2px solid #edf0ea;margin-bottom:6px}
+  .atabs button{font-family:inherit;flex:1;background:none;border:none;padding:8px 2px;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px}
+  .atabs button.active{color:var(--sage-d);border-bottom-color:var(--sage-d);font-weight:bold}
+  .aday{font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--sage-d);margin:10px 0 2px;padding-bottom:3px;border-bottom:1px dashed #e4e0d2}
+  .aday:first-child{margin-top:2px}
   header{text-align:center;margin-bottom:10px}
   header .logo{height:54px;display:block;margin:0 auto 10px}
   header h1{font-size:24px;letter-spacing:2px;color:var(--sage-d);text-transform:uppercase}
@@ -152,7 +157,12 @@
    <div class="layout">
     <div class="sidecol">
       <div class="panel" id="apptPanel">
-        <h2>Today&rsquo;s Appointments</h2>
+        <h2>Appointments</h2>
+        <div class="atabs">
+          <button data-a="today" class="active">Today</button>
+          <button data-a="tomorrow">Tomorrow</button>
+          <button data-a="week">This Week</button>
+        </div>
         <div id="appts"></div>
       </div>
     </div>
@@ -517,17 +527,60 @@ document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',
   b.classList.add('active'); TAB=b.dataset.tab; draw();
 }));
 
+// ----- appointments: Today / Tomorrow / This Week tabs -----
+let APPTDAYS=null, APPTTODAY=null, ATAB='today';
+const localISO=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function apptRow(a){
+  return `<div class="appt"><div class="when">${esc(a.t)}</div>
+    <div><div class="what">${esc(a.title)}</div>${a.who?`<div class="who">${esc(a.who)}</div>`:''}</div></div>`;
+}
+function drawAppts(){
+  const el=document.getElementById('appts');
+  const panel=document.getElementById('apptPanel');
+  if(APPTDAYS){
+    const now=new Date();
+    const todayStr=localISO(now);
+    const tom=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);
+    const tomStr=localISO(tom);
+    const sun=new Date(weekStart()); sun.setDate(sun.getDate()+6);
+    const sunStr=localISO(sun);
+    let html='';
+    if(ATAB==='today'){
+      const d=APPTDAYS.find(x=>x.date===todayStr);
+      html=(d&&d.appts.length)?d.appts.map(apptRow).join(''):'<div class="empty">No appointments today.</div>';
+    } else if(ATAB==='tomorrow'){
+      const d=APPTDAYS.find(x=>x.date===tomStr);
+      html=(d&&d.appts.length)?d.appts.map(apptRow).join(''):'<div class="empty">No appointments tomorrow.</div>';
+    } else {
+      // this week: today through Sunday only (no past days)
+      const days=APPTDAYS.filter(x=>x.date>=todayStr&&x.date<=sunStr&&x.appts.length);
+      html=days.length
+        ?days.map(d=>`<div class="aday">${esc(d.label||d.date)}</div>`+d.appts.map(apptRow).join('')).join('')
+        :'<div class="empty">Nothing booked for the rest of this week.</div>';
+    }
+    el.innerHTML=html;
+    panel.style.display='block';
+  } else if(APPTTODAY){
+    // legacy calendar script: only today's data exists
+    el.innerHTML=ATAB==='today'
+      ?(APPTTODAY.length?APPTTODAY.map(apptRow).join(''):'<div class="empty">No appointments today.</div>')
+      :'<div class="empty">Not available yet — the calendar connection needs a small update.</div>';
+    panel.style.display='block';
+  }
+}
+document.querySelectorAll('.atabs button').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.atabs button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); ATAB=b.dataset.a; drawAppts();
+}));
 async function loadToday(){
+  const base=CONFIG.calendarApiUrl||API;
   try{
-    const base=CONFIG.calendarApiUrl||API;
+    const r=await fetch(base+'?k='+KEY+'&action=upcoming').then(x=>x.json());
+    if(r&&Array.isArray(r.days)){ APPTDAYS=r.days; drawAppts(); return; }
+  }catch(e){}
+  try{
     const r=await fetch(base+'?k='+KEY+'&action=today').then(x=>x.json());
-    if(!r||!Array.isArray(r.appts)) return; // old script version or calendar not shared yet
-    const el=document.getElementById('appts');
-    el.innerHTML=r.appts.length?r.appts.map(a=>
-      `<div class="appt"><div class="when">${esc(a.t)}</div>
-        <div><div class="what">${esc(a.title)}</div>${a.who?`<div class="who">${esc(a.who)}</div>`:''}</div></div>`).join('')
-      :'<div class="empty">No appointments today.</div>';
-    document.getElementById('apptPanel').style.display='block';
+    if(r&&Array.isArray(r.appts)){ APPTTODAY=r.appts; drawAppts(); }
   }catch(e){}
 }
 async function refresh(){
