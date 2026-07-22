@@ -305,13 +305,18 @@ async function loadGoal(){
   try{
     const text=await fetch(LEDGER_URL).then(r=>r.text());
     if(text.trim().startsWith('<')) return; // not shared / error page
-    const rows=parseCSV(text); if(rows.length<2) return;
+    const rows=parseCSV(text); if(!rows.length) return;
     const hdr=rows[0].map(h=>String(h).toLowerCase());
-    const di=hdr.findIndex(h=>h.includes('date')), ai=hdr.findIndex(h=>h.includes('amount')), si=hdr.findIndex(h=>h.includes('status'));
-    if(di<0||ai<0||si<0) return;
+    let di=hdr.findIndex(h=>h.includes('date')), ai=hdr.findIndex(h=>h.includes('amount')), si=hdr.findIndex(h=>h.includes('status'));
+    let data=rows.slice(1);
+    if(di<0||ai<0||si<0){
+      // no header row (the ledger tab exports data-only) — use the known column order:
+      // Date | Service | Amount | Qty | Payment Status | Order # | Source
+      di=0; ai=2; si=4; data=rows;
+    }
     const ws=weekStart();
     let total=0;
-    rows.slice(1).forEach(r=>{
+    data.forEach(r=>{
       if(String(r[si]||'').trim().toUpperCase()!=='PAID') return;
       const d=parseLedgerDate(r[di]); if(!d||d<ws) return;
       total+=parseFloat(String(r[ai]).replace(/[^0-9.\-]/g,''))||0;
