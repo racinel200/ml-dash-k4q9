@@ -50,6 +50,11 @@
   .task.done .txt{text-decoration:line-through;color:var(--muted)}
   .task .meta{font-size:11.5px;color:var(--muted);margin-top:3px}
   .chip{display:inline-block;background:#eef3ee;color:var(--sage-d);border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;margin-right:6px}
+  .tmin{display:inline-block;border-radius:10px;padding:1px 8px;font-size:10.5px;margin-right:6px;white-space:nowrap}
+  .tmin.tg{background:#e7f0e7;color:#2f5233}
+  .tmin.ty{background:#f5eeda;color:#8a6d1f}
+  .tmin.tr{background:#f7e6e2;color:#a34d3c}
+  .tmin s{opacity:.65}
   .askclaude{display:inline-block;color:#b0602f;background:#faf3ec;border:1px solid #ecd9c8;border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;text-decoration:none;margin-left:8px}
   .askclaude:hover{background:#b0602f;color:#fff;border-color:#b0602f}
   .runauto{display:inline-block;color:var(--sage-d);background:#e9f2e9;border:1px solid #c9dcc9;border-radius:10px;padding:1px 9px;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;text-decoration:none;margin-left:8px;cursor:pointer;font-weight:bold}
@@ -320,11 +325,27 @@ function runAuto(id){
 }
 
 function parseTask(raw){
-  const m=String(raw).match(/^\[P([123])\]\s*\[([^\]]+)\]\s*(.*)$/s);
-  if(m) return {p:+m[1],cat:m[2].trim(),text:m[3].trim()};
+  const m=String(raw).match(/^\[P([123])\]\s*\[([^\]]+)\]\s*(?:\[~(\d+)m\]\s*)?(.*)$/s);
+  if(m) return {p:+m[1],cat:m[2].trim(),mins:m[3]?+m[3]:0,text:m[4].trim()};
   const m2=String(raw).match(/^\[P([123])\]\s*(.*)$/s);
-  if(m2) return {p:+m2[1],cat:'General',text:m2[2].trim()};
-  return {p:2,cat:'General',text:String(raw)};
+  if(m2) return {p:+m2[1],cat:'General',mins:0,text:m2[2].trim()};
+  return {p:2,cat:'General',mins:0,text:String(raw)};
+}
+
+// Time estimate chip: [~Nm] tag in the task text = manual estimate;
+// an automation payload's "minutes" = the faster with-help estimate.
+function timeChip(t){
+  const a=AUTOS[String(t.id)];
+  const am=(a&&+a.minutes>0)?Math.round(+a.minutes):0;
+  const tm=t.mins||0;
+  if(!am&&!tm) return '';
+  const eff=am||tm;
+  const cls=eff<10?'tg':eff<=30?'ty':'tr';
+  let label;
+  if(am&&tm&&am<tm) label=`<s>~${tm}</s> → ~${am} min ✨`;
+  else if(am) label=`~${am} min ✨`;
+  else label=`~${tm} min`;
+  return `<span class="tmin ${cls}">${label}</span>`;
 }
 
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
@@ -365,7 +386,7 @@ function draw(){
           `<div class="task p${t.p}" onclick="mark('${esc(t.id)}')">
              <div class="box"></div>
              <div><div class="txt">${esc(t.text)}</div>
-             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}${AUTOS[String(t.id)]?autoBtn(t):`<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a>`}</div></div>
+             <div class="meta"><span class="chip">${esc(t.cat)}</span>${timeChip(t)}added ${fmtDate(t.added)}${AUTOS[String(t.id)]?autoBtn(t):`<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a>`}</div></div>
            </div>`).join('');
       }
     }
