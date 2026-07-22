@@ -89,7 +89,7 @@
   .pick button.active{background:var(--sage-d);border-color:var(--sage-d);color:#fff}
   .pick button.p1.active{background:var(--rose);border-color:var(--rose)}
   .pick button.p2.active{background:var(--gold);border-color:var(--gold)}
-  .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+  .modal .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;flex-wrap:wrap;align-items:center}
   .modal .cancel{font-family:inherit;background:none;border:none;color:var(--muted);font-size:14px;cursor:pointer;text-decoration:underline}
 </style>
 </head>
@@ -187,6 +187,7 @@
     <div id="autoBody"></div>
     <div class="actions">
       <button class="cancel" id="autoClose">Close</button>
+      <a class="send" id="autoClaude" style="display:none;text-decoration:none;text-align:center;background:#b0602f" target="_blank" rel="noopener">Do it with Claude &#8599;</a>
       <button class="send" id="autoCopy">Copy it</button>
       <a class="send" id="autoGo" style="display:none;text-decoration:none;text-align:center">Send it &#8599;</a>
     </div>
@@ -240,18 +241,15 @@ async function loadConfig(){
     });
   }catch(e){}
 }
-function claudeUrl(t){
-  const a=AUTOS[String(t.id)];
-  if(a && a.prompt){
-    return 'https://claude.ai/new?q='+encodeURIComponent(a.prompt)
-      +(CONFIG.projectId?'&project='+encodeURIComponent(CONFIG.projectId):'');
-  }
-  const prompt=CONFIG.contextTemplate
-    .replace(/\{task\}/g,t.text)
-    .replace(/\{category\}/g,t.cat)
-    .replace(/\{priority\}/g,PRIO_LABEL[t.p].toLowerCase());
+function claudePromptUrl(prompt){
   return 'https://claude.ai/new?q='+encodeURIComponent(prompt)
     +(CONFIG.projectId?'&project='+encodeURIComponent(CONFIG.projectId):'');
+}
+function claudeUrl(t){
+  return claudePromptUrl(CONFIG.contextTemplate
+    .replace(/\{task\}/g,t.text)
+    .replace(/\{category\}/g,t.cat)
+    .replace(/\{priority\}/g,PRIO_LABEL[t.p].toLowerCase()));
 }
 let DATA={tasks:[],notes:[]};
 let TAB='todo', CAT='All';
@@ -271,25 +269,44 @@ function buildAutos(){
 }
 function autoBtn(t){
   const a=AUTOS[String(t.id)]; if(!a) return '';
-  const safeUrl=a.url && /^(sms:|tel:|mailto:|https?:)/i.test(a.url) ? a.url : '';
-  if(a.content || !safeUrl){
-    if(!a.content) return '';
-    return `<a class="runauto" href="#" title="${escA(a.label||'')}" onclick="event.stopPropagation();event.preventDefault();runAuto('${escA(String(t.id))}')">Run Automated Solution &#9889;</a>`;
-  }
-  return `<a class="runauto" href="${escA(safeUrl)}" title="${escA(a.label||'')}" ${/^https?:/i.test(safeUrl)?'target="_blank" rel="noopener"':''} onclick="event.stopPropagation()">Run Automated Solution &#9889;</a>`;
+  return `<a class="runauto" href="#" title="${escA(a.label||'')}" onclick="event.stopPropagation();event.preventDefault();runAuto('${escA(String(t.id))}')">Automated solution proposed &#10024;</a>`;
 }
 function runAuto(id){
   const a=AUTOS[String(id)]; if(!a) return;
   const safeUrl=a.url && /^(sms:|tel:|mailto:|https?:)/i.test(a.url) ? a.url : '';
-  if(!a.content){ if(safeUrl) location.href=safeUrl; return; }
+  const scheme=safeUrl?safeUrl.split(':')[0].toLowerCase():'';
   document.getElementById('autoTitle').textContent=a.label||'Ready to go';
-  document.getElementById('autoBody').textContent=a.content;
+  // body: prepared text, or a plain-words line about what the link does
+  const LINK_DESC={sms:'Everything is written and filled in — one tap opens the text message, ready to send.',
+                   tel:'One tap starts the call.',
+                   mailto:'One tap opens the email, ready to send.',
+                   http:'One tap opens the page you need.',
+                   https:'One tap opens the page you need.'};
+  const body=a.content||LINK_DESC[scheme]||'';
+  const bodyEl=document.getElementById('autoBody');
+  bodyEl.textContent=body; bodyEl.style.display=body?'block':'none';
+  // Copy — only when there's prepared text to copy
+  document.getElementById('autoCopy').style.display=a.content?'inline-block':'none';
+  // Send — label matches what the link does
   const go=document.getElementById('autoGo');
   if(safeUrl){
+    go.textContent=(scheme==='sms'?'Send the text':scheme==='tel'?'Call now':scheme==='mailto'?'Send the email':'Open it')+' ↗';
     go.href=safeUrl; go.style.display='inline-block';
     if(/^https?:/i.test(safeUrl)){ go.target='_blank'; go.rel='noopener'; }
     else { go.removeAttribute('target'); go.removeAttribute('rel'); }
   } else { go.style.display='none'; }
+  // Do it with Claude — payload prompt, falling back to the generic template
+  const cb=document.getElementById('autoClaude');
+  let prompt=a.prompt||'';
+  if(!prompt){
+    const raw=DATA.tasks.find(x=>String(x.id)===String(id));
+    if(raw) prompt=''; // build via claudeUrl below
+    cb.href=raw?claudeUrl(parseTask(raw.task)):'#';
+    cb.style.display=raw?'inline-block':'none';
+  } else {
+    cb.href=claudePromptUrl(prompt);
+    cb.style.display='inline-block';
+  }
   document.getElementById('autoOverlay').classList.add('show');
 }
 
@@ -339,7 +356,7 @@ function draw(){
           `<div class="task p${t.p}" onclick="mark('${esc(t.id)}')">
              <div class="box"></div>
              <div><div class="txt">${esc(t.text)}</div>
-             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a>${autoBtn(t)}</div></div>
+             <div class="meta"><span class="chip">${esc(t.cat)}</span>added ${fmtDate(t.added)}${AUTOS[String(t.id)]?autoBtn(t):`<a class="askclaude" href="${claudeUrl(t)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Do it with Claude &#8599;</a>`}</div></div>
            </div>`).join('');
       }
     }
