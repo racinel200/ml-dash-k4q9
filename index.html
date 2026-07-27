@@ -108,31 +108,30 @@
 </div>
 
 <script>
-const SHEET_ID='1qq5JCvKQzTHZSmeA8Yki_C_2c8OMkZ4szkUBojNjlp4';
-const GID='51515579';
-const CSV_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
+// ----- data source: Supabase (schema "mlk") -----
+const SB_URL='https://wopiuwndpuxzywtchbtt.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvcGl1d25kcHV4enl3dGNoYnR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ5NDQ4ODksImV4cCI6MjEwMDUyMDg4OX0.t5rJOiyRGwHODP30KgYJNBK9du7TfldiRwi1oGve5v0';
+const SB_CDN='https://esm.sh/@supabase/supabase-js@2';
+const HUB_EMAIL='hub@massageandlymphatic.com';
+let sb=null;
+// PostgREST caps a single response — page through so nothing is silently dropped
+async function fetchAll(table,orderCols){
+  const out=[],size=1000;
+  for(let from=0;;from+=size){
+    let q=sb.from(table).select('*');
+    (orderCols||[]).forEach(c=>{ q=q.order(c,{ascending:true,nullsFirst:false}); });
+    const {data,error}=await q.range(from,from+size-1);
+    if(error) throw error;
+    const rows=data||[];
+    out.push(...rows);
+    if(rows.length<size) break;
+  }
+  return out;
+}
 const SAGE='#5a7a5e',SAGED='#2f5233',GOLD='#c9a86a',ROSE='#c97b6a',MIST='#a8bfaa',CLAY='#8d6e63';
 const money=v=>'$'+Math.round(v).toLocaleString();
 const money2=v=>'$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
 const iso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-
-function parseCSV(text){
-  const rows=[];let row=[],cur='',inQ=false;
-  for(let i=0;i<text.length;i++){
-    const ch=text[i];
-    if(inQ){
-      if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else inQ=false; }
-      else cur+=ch;
-    } else {
-      if(ch==='"') inQ=true;
-      else if(ch===','){row.push(cur);cur='';}
-      else if(ch==='\n'){row.push(cur.replace(/\r$/,''));rows.push(row);row=[];cur='';}
-      else cur+=ch;
-    }
-  }
-  if(cur!==''||row.length){row.push(cur.replace(/\r$/,''));rows.push(row);}
-  return rows;
-}
 
 function category(svc){
   const s=svc.toLowerCase();
@@ -287,33 +286,22 @@ function render(mode){
     `Live from the sales ledger (Google Sheets) · showing ${w.label} · ${cur.length} of ${SALES.length} sales · loaded ${new Date().toLocaleString()}`;
 }
 
+// mlk.sales -> the exact {date,svc,amt,pay,ord,src} rows parseCSV used to produce,
+// so category()/windows()/buckets()/render() are untouched.
 async function load(){
-  let text;
+  let rows;
   try{
-    const r=await fetch(CSV_URL);
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    text=await r.text();
-    if(text.trim().startsWith('<')) throw new Error('not shared');
+    rows=await fetchAll('sales',['sale_date','order_ref','service','amount']);
   }catch(e){
     const st=document.getElementById('status');
     st.className='error';
-    st.innerHTML='Couldn&rsquo;t load the live data.<br><br>The Google Sheet must be shared as &ldquo;Anyone with the link &mdash; Viewer.&rdquo;<br>Ask Racine to check the sharing settings, then refresh this page.';
+    st.innerHTML='Couldn&rsquo;t load the live data.<br><br>Check your connection and refresh this page.';
     return;
   }
-  const rows=parseCSV(text);
-  const r0=rows[0].map(h=>h.trim().toLowerCase());
-  const hasHeader=r0.includes('date')&&r0.includes('service');
-  let idx;
-  if(hasHeader){
-    idx={date:r0.indexOf('date'),svc:r0.indexOf('service'),amt:r0.indexOf('amount'),
-         pay:r0.findIndex(h=>h.startsWith('payment')),ord:r0.findIndex(h=>h.startsWith('order')),src:r0.indexOf('source')};
-  } else {
-    idx={date:0,svc:1,amt:2,qty:3,pay:4,ord:5,src:6};
-  }
-  const dataRows=hasHeader?rows.slice(1):rows;
-  SALES=dataRows.filter(r=>r.length>=5&&/^\d{4}-\d{2}-\d{2}/.test((r[idx.date]||'').trim())).map(r=>({
-    date:r[idx.date].trim().slice(0,10), svc:(r[idx.svc]||'').trim(), amt:parseFloat(r[idx.amt])||0,
-    pay:(r[idx.pay]||'').trim().toUpperCase(), ord:(r[idx.ord]||'').trim(), src:(r[idx.src]||'?').trim().toLowerCase()
+  const cell=v=>v==null?'':String(v);
+  SALES=rows.filter(r=>/^\d{4}-\d{2}-\d{2}/.test(cell(r.sale_date).trim())).map(r=>({
+    date:cell(r.sale_date).trim().slice(0,10), svc:cell(r.service).trim(), amt:parseFloat(r.amount)||0,
+    pay:cell(r.payment_status).trim().toUpperCase(), ord:cell(r.order_ref).trim(), src:(cell(r.source)||'?').trim().toLowerCase()
   }));
 
   document.getElementById('status').style.display='none';
@@ -326,7 +314,55 @@ async function load(){
     render(b.dataset.g);
   }));
 }
-load();
+
+// ----- passcode gate (styled with the page's own tokens) -----
+const GATE_CSS='#pcGate{position:fixed;inset:0;background:var(--cream);display:flex;align-items:center;justify-content:center;padding:24px;z-index:100}'
++'#pcGate .pcCard{background:var(--card);border-radius:14px;padding:28px 26px;box-shadow:0 2px 10px rgba(47,82,51,.08);max-width:340px;width:100%;text-align:center}'
++'#pcGate h2{font-size:16px;color:var(--sage-d);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}'
++'#pcGate p{color:var(--muted);font-size:13px;margin-bottom:16px}'
++'#pcGate input{width:100%;font-family:inherit;font-size:16px;padding:11px 12px;border:1px solid #d8e0d8;border-radius:10px;background:#fdfcf9;text-align:center;letter-spacing:2px}'
++'#pcGate button{font-family:inherit;background:var(--sage-d);color:#fff;border:none;border-radius:20px;padding:10px 28px;font-size:14px;letter-spacing:1px;cursor:pointer;margin-top:14px}'
++'#pcGate button:disabled{opacity:.5}'
++'#pcErr{color:var(--rose);font-size:13px;margin-top:12px;min-height:17px}';
+function showGate(){
+  const st=document.createElement('style'); st.textContent=GATE_CSS; document.head.appendChild(st);
+  const g=document.createElement('div'); g.id='pcGate';
+  g.innerHTML='<div class="pcCard"><h2>Sales Dashboard</h2><p>Enter your passcode to continue.</p>'
+    +'<input type="password" id="pcInput" autocomplete="current-password" placeholder="Passcode">'
+    +'<div id="pcErr"></div><button id="pcGo">Unlock</button></div>';
+  document.body.appendChild(g);
+  const inp=g.querySelector('#pcInput'), btn=g.querySelector('#pcGo'), err=g.querySelector('#pcErr');
+  const go=async()=>{
+    if(!inp.value){ inp.focus(); return; }
+    btn.disabled=true; err.textContent='';
+    try{
+      const {error}=await sb.auth.signInWithPassword({email:HUB_EMAIL,password:inp.value});
+      if(error) throw error;
+      inp.value=''; g.remove(); st.remove(); load();
+    }catch(e){ err.textContent='That passcode didn’t work.'; inp.value=''; inp.focus(); }
+    btn.disabled=false;
+  };
+  btn.addEventListener('click',go);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+  setTimeout(()=>inp.focus(),50);
+}
+// no visible sign-out (it would disturb the header) — available from the console
+window.mlkSignOut=()=>sb&&sb.auth.signOut().then(()=>location.reload());
+async function boot(){
+  try{
+    const m=await import(SB_CDN);
+    sb=m.createClient(SB_URL,SB_KEY,{db:{schema:'mlk'}});
+  }catch(e){
+    const st=document.getElementById('status');
+    st.className='error';
+    st.innerHTML='Couldn&rsquo;t load the live data.<br><br>Check your connection and refresh this page.';
+    return;
+  }
+  let session=null;
+  try{ session=(await sb.auth.getSession()).data.session; }catch(e){}
+  if(session) load(); else showGate();
+}
+boot();
 </script>
 </body>
 </html>

@@ -247,50 +247,52 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const API='https://script.google.com/macros/s/AKfycbz86SRxCgZQk-nwQ3aQbxPBh_QpGTPDntnjrTdcQlVAtsbEOtX7Rnx6kov95w82ILrO/exec';
-const KEY='mlk-ops-2026';
-const call=params=>fetch(API+'?k='+KEY+'&'+new URLSearchParams(params).toString()).then(r=>r.json());
+// ----- data source: Supabase (schema "mlk") -----
+const SB_URL='https://wopiuwndpuxzywtchbtt.supabase.co';
+const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvcGl1d25kcHV4enl3dGNoYnR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ5NDQ4ODksImV4cCI6MjEwMDUyMDg4OX0.t5rJOiyRGwHODP30KgYJNBK9du7TfldiRwi1oGve5v0';
+const SB_CDN='https://esm.sh/@supabase/supabase-js@2';
+const HUB_EMAIL='hub@massageandlymphatic.com';
+let sb=null;
+// one-off warning per failing loader, surfaced through the existing toast
+const WARNED={};
+function warn(what,e){ if(WARNED[what]) return; WARNED[what]=1; try{console.warn(what,e&&e.message||e);}catch(_){} toast('Couldn’t load '+what+'.'); }
+// PostgREST caps a single response — page through so nothing is silently dropped
+async function fetchAll(table,orderCols){
+  const out=[],size=1000;
+  for(let from=0;;from+=size){
+    let q=sb.from(table).select('*');
+    (orderCols||[]).forEach(c=>{ q=q.order(c,{ascending:true,nullsFirst:false}); });
+    const {data,error}=await q.range(from,from+size-1);
+    if(error) throw error;
+    const rows=data||[];
+    out.push(...rows);
+    if(rows.length<size) break;
+  }
+  return out;
+}
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const escA=s=>esc(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const fmtDate=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,10):d.toLocaleDateString('en',{month:'short',day:'numeric'});};
 const fmtDT=s=>{const d=new Date(s);return isNaN(d)?String(s).slice(0,16):d.toLocaleDateString('en',{month:'short',day:'numeric'})+' at '+d.toLocaleTimeString('en',{hour:'numeric',minute:'2-digit'});};
 const PRIO_LABEL={1:'Do first',2:'This week',3:'When you can'};
 
-// Config: live values come from the "Config" tab of the Ops Board spreadsheet
-// (key/value rows; edit the cell, no redeploy needed). These are the fallbacks.
+// Config: live values come from the mlk.config table (key/value rows; edit the
+// row, no redeploy needed). These are the fallbacks when a key is absent.
 const CONFIG={
   weeklyGoal:'',
   contextTemplate:'You\'re helping Kaitlyn, a licensed massage therapist and certified lymphatic drainage (MLD) practitioner who runs a solo studio, "Massage & Lymphatic by Kaitlyn," in Buda, TX, serving greater Austin. Clients book through Vagaro; her site is massageandlymphatic.com. Services: 90-min/2-hr all-inclusive Intentional Massage Experience ($195/$285), lymphatic and pre/post-op massage ($115/hr), session packages ($555-$1,250), memberships ($175/mo). She\'s actively growing her client base. She\'s not technical - give simple, practical, step-by-step help with ready-to-use wording (scripts, texts, captions) she can copy.\n\nHer to-do right now (category: {category}, priority: {priority}): {task}\n\nHelp her get this done today.',
   projectId:'',
   calendarApiUrl:''
 };
-const CONFIG_URL='https://docs.google.com/spreadsheets/d/1IQeC8UFB_tiNjWWit4kefHqqq_-i_2ZSdIJ8YDDEElM/gviz/tq?tqx=out:csv&sheet=Config';
-function parseCSV(text){
-  const rows=[];let row=[],cur='',inQ=false;
-  for(let i=0;i<text.length;i++){
-    const ch=text[i];
-    if(inQ){
-      if(ch==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else inQ=false; }
-      else cur+=ch;
-    } else {
-      if(ch==='"') inQ=true;
-      else if(ch===','){row.push(cur);cur='';}
-      else if(ch==='\n'){row.push(cur.replace(/\r$/,''));rows.push(row);row=[];cur='';}
-      else cur+=ch;
-    }
-  }
-  if(cur!==''||row.length){row.push(cur.replace(/\r$/,''));rows.push(row);}
-  return rows;
-}
 async function loadConfig(){
   try{
-    const text=await fetch(CONFIG_URL).then(r=>r.text());
-    if(text.trim().startsWith('<')) return; // sheet not shared yet — keep defaults
-    parseCSV(text).forEach(row=>{
-      const k=(row[0]||'').trim(), v=(row[1]||'').trim();
+    const {data,error}=await sb.from('config').select('*');
+    if(error) throw error;
+    (data||[]).forEach(row=>{
+      const k=String(row.key==null?'':row.key).trim(), v=String(row.value==null?'':row.value).trim();
       if(k && k!=='key' && v && CONFIG.hasOwnProperty(k)) CONFIG[k]=v.replace(/\\n/g,'\n');
     });
-  }catch(e){}
+  }catch(e){ warn('settings',e); }
 }
 function claudePromptUrl(prompt){
   return 'https://claude.ai/new?q='+encodeURIComponent(prompt)
@@ -306,34 +308,17 @@ let DATA={tasks:[],notes:[]};
 let TAB='todo', CAT='All', QUICK=false;
 let AUTOS={};
 
-// ----- weekly revenue goal bar (reads the sales ledger CSV directly) -----
-const LEDGER_URL='https://docs.google.com/spreadsheets/d/1qq5JCvKQzTHZSmeA8Yki_C_2c8OMkZ4szkUBojNjlp4/gviz/tq?tqx=out:csv&gid=51515579';
+// ----- weekly revenue goal bar (reads mlk.v_week_progress) -----
 function weekStart(){const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate()-((d.getDay()+6)%7));}
-function parseLedgerDate(s){
-  const m=String(s).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if(m) return new Date(+m[1],+m[2]-1,+m[3]);
-  const d=new Date(s); return isNaN(d)?null:d;
-}
+const dayKey=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 async function loadGoal(){
   try{
-    const text=await fetch(LEDGER_URL).then(r=>r.text());
-    if(text.trim().startsWith('<')) return; // not shared / error page
-    const rows=parseCSV(text); if(!rows.length) return;
-    const hdr=rows[0].map(h=>String(h).toLowerCase());
-    let di=hdr.findIndex(h=>h.includes('date')), ai=hdr.findIndex(h=>h.includes('amount')), si=hdr.findIndex(h=>h.includes('status'));
-    let data=rows.slice(1);
-    if(di<0||ai<0||si<0){
-      // no header row (the ledger tab exports data-only) — use the known column order:
-      // Date | Service | Amount | Qty | Payment Status | Order # | Source
-      di=0; ai=2; si=4; data=rows;
-    }
-    const ws=weekStart();
-    let total=0;
-    data.forEach(r=>{
-      if(String(r[si]||'').trim().toUpperCase()!=='PAID') return;
-      const d=parseLedgerDate(r[di]); if(!d||d<ws) return;
-      total+=parseFloat(String(r[ai]).replace(/[^0-9.\-]/g,''))||0;
-    });
+    // Postgres date_trunc('week') starts Monday, matching weekStart() above.
+    // paid_total is already the PAID-only sum — no further filtering.
+    const {data,error}=await sb.from('v_week_progress').select('*').eq('week_start',dayKey(weekStart())).limit(1);
+    if(error) throw error;
+    const row=(data&&data[0])||null;
+    const total=row?(parseFloat(row.paid_total)||0):0;
     const goal=+CONFIG.weeklyGoal||1500;
     const pct=Math.min(100,Math.round(total/goal*100));
     document.getElementById('gbText').textContent= total>=goal
@@ -343,7 +328,7 @@ async function loadGoal(){
     fill.style.width=pct+'%';
     if(total>=goal) fill.style.background='linear-gradient(90deg,var(--gold),#b3924f)';
     document.getElementById('goalbar').style.display='block';
-  }catch(e){}
+  }catch(e){ warn('the weekly goal',e); }
 }
 // effective minutes: payload's with-help time wins over the manual [~Nm] tag
 function effMins(t){const a=AUTOS[String(t.id)];return (a&&+a.minutes>0)?Math.round(+a.minutes):(t.mins||0);}
@@ -364,8 +349,8 @@ function persistSeen(){
   }catch(e){}
 }
 
-// Automation payloads: notes with by="automation", text = JSON
-// {taskId, label, url?, content?} — latest note per taskId wins.
+// Automation payloads: mlk.v_current_payloads, adapted into notes with
+// by="automation", note = JSON {taskId, label, url?, content?} — latest per taskId wins.
 // url = one-tap action (sms: / tel: / mailto: / https:), content = ready-to-copy text.
 function buildAutos(){
   AUTOS={};
@@ -575,23 +560,68 @@ document.querySelectorAll('.atabs button').forEach(b=>b.addEventListener('click'
   document.querySelectorAll('.atabs button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active'); ATAB=b.dataset.a; drawAppts();
 }));
+// Calendar rows -> the {t,e,title,who} shape apptRow() already renders.
+// Vagaro-created events carry no title (the feed doesn't include service names).
+const apptTime=s=>{const d=new Date(s);return isNaN(d)?'':d.toLocaleTimeString('en',{hour:'numeric',minute:'2-digit'});};
+function mapAppt(a){
+  if(a&&a.t!==undefined&&a.title!==undefined&&a.starts_at===undefined) return a; // already in row shape
+  const allDay=!!(a&&a.all_day);
+  const raw=a&&a.title!=null?String(a.title).trim():'';
+  const src=String((a&&a.source)||'').toLowerCase();
+  return {
+    t: allDay?'All day':apptTime(a&&a.starts_at),
+    e: allDay?'':apptTime(a&&a.ends_at),
+    title: raw||(src==='vagaro'?'Vagaro appointment':'Appointment'),
+    who: String((a&&(a.client_email||a.location))||'').trim()
+  };
+}
 async function loadToday(){
-  const base=CONFIG.calendarApiUrl||API;
   try{
-    const r=await fetch(base+'?k='+KEY+'&action=upcoming').then(x=>x.json());
-    if(r&&Array.isArray(r.days)){ APPTDAYS=r.days; drawAppts(); return; }
-  }catch(e){}
-  try{
-    const r=await fetch(base+'?k='+KEY+'&action=today').then(x=>x.json());
-    if(r&&Array.isArray(r.appts)){ APPTTODAY=r.appts; drawAppts(); }
-  }catch(e){}
+    const {data,error}=await sb.functions.invoke('mlk-appointments');
+    if(error) throw error;
+    if(!data||data.ok===false) throw new Error('appointments unavailable');
+    if(Array.isArray(data.days)){
+      APPTDAYS=data.days.map(d=>({...d,appts:(d.appts||[]).map(mapAppt)}));
+      drawAppts(); return;
+    }
+    const rows=Array.isArray(data.today)?data.today.slice():[];
+    rows.sort((x,y)=>((x.all_day?0:1)-(y.all_day?0:1))||String(x.starts_at||'').localeCompare(String(y.starts_at||'')));
+    APPTTODAY=rows.map(mapAppt);
+    drawAppts();
+  }catch(e){ warn('appointments',e); }
+}
+// mlk tables -> the {tasks:[{id,added,task,status,doneDate,by}], notes:[{ts,note,by}]}
+// shape draw()/buildAutos() already consume. Ascending order matters: the
+// renderers take slice(-N) to get the newest rows.
+async function loadList(){
+  const soft=(p,what)=>p.catch(e=>{warn(what,e);return [];});
+  const [tasks,payloads,acts,updates,notes]=await Promise.all([
+    fetchAll('tasks',['added_at','id']),
+    soft(fetchAll('v_current_payloads',['created_at']),'automations'),
+    soft(fetchAll('activity',['created_at']),'the activity log'),
+    soft(fetchAll('daily_updates',['published_at']),'the daily update'),
+    soft(fetchAll('notes',['created_at']),'your notes')
+  ]);
+  const T=tasks.map(t=>({
+    id:String(t.id), added:t.added_at||'', task:t.task==null?'':String(t.task),
+    status:t.status==='done'?'done':'open', doneDate:t.done_at||'', by:t.added_by||''
+  }));
+  const N=[];
+  notes.forEach(n=>N.push({ts:n.created_at,note:n.body==null?'':String(n.body),by:'kaitlyn'}));
+  acts.forEach(a=>N.push({ts:a.created_at,note:a.body==null?'':String(a.body),by:'bot-action'}));
+  updates.forEach(u=>N.push({ts:u.published_at,note:u.body==null?'':String(u.body),by:'daily-update'}));
+  payloads.forEach(p=>N.push({ts:p.created_at,by:'automation',note:JSON.stringify({
+    taskId:p.task_id, label:p.label||'', prompt:p.prompt||'',
+    minutes:p.minutes, url:p.url||'', content:p.content||''
+  })}));
+  N.sort((a,b)=>String(a.ts||'').localeCompare(String(b.ts||'')));
+  return {tasks:T,notes:N};
 }
 async function refresh(){
   try{
     await loadConfig(); // config first: loadToday/loadGoal may depend on it
-    const [data]=await Promise.all([call({action:'list'}),loadToday(),loadGoal()]);
+    const [data]=await Promise.all([loadList(),loadToday(),loadGoal()]);
     DATA=data;
-    if(DATA.error) throw new Error(DATA.error);
     document.getElementById('status').style.display='none';
     document.getElementById('content').style.display='block';
     draw();
@@ -603,25 +633,34 @@ async function refresh(){
   }
 }
 
+// status and done_at always move together — a CHECK requires done_at when done.
 async function mark(id){
   const t=DATA.tasks.find(x=>x.id===id); if(!t) return;
+  const was=t.doneDate;
   t.status='done'; t.doneDate=new Date().toISOString(); draw();
-  try{ const r=await call({action:'done',id}); if(r.error) throw 0; toast('Nice — marked done.'); }
-  catch(e){ t.status='open'; draw(); toast('Hmm, that didn’t save — try again.'); }
+  try{
+    const {error}=await sb.from('tasks').update({status:'done',done_at:t.doneDate}).eq('id',id);
+    if(error) throw error; toast('Nice — marked done.');
+  }
+  catch(e){ t.status='open'; t.doneDate=was; draw(); toast('Hmm, that didn’t save — try again.'); }
 }
 async function unmark(id){
   const t=DATA.tasks.find(x=>x.id===id); if(!t) return;
+  const was=t.doneDate;
   t.status='open'; t.doneDate=''; draw();
-  try{ const r=await call({action:'undone',id}); if(r.error) throw 0; }
-  catch(e){ t.status='done'; draw(); toast('That didn’t save — try again.'); }
+  try{
+    const {error}=await sb.from('tasks').update({status:'open',done_at:null}).eq('id',id);
+    if(error) throw error;
+  }
+  catch(e){ t.status='done'; t.doneDate=was; draw(); toast('That didn’t save — try again.'); }
 }
 document.getElementById('sendbtn').addEventListener('click', async ()=>{
   const box=document.getElementById('notebox');
   const text=box.value.trim(); if(!text) return;
   const btn=document.getElementById('sendbtn'); btn.disabled=true;
   try{
-    const r=await call({action:'note',text,by:'kaitlyn'});
-    if(r.error) throw 0;
+    const {error}=await sb.from('notes').insert({body:text,author:'kaitlyn'});
+    if(error) throw error;
     box.value=''; toast('Note sent — it’ll be read in the morning.');
     DATA.notes.push({ts:new Date().toISOString(),note:text,by:'kaitlyn'}); draw();
   }catch(e){ toast('Couldn’t send — try again.'); }
@@ -650,9 +689,10 @@ document.getElementById('modalAdd').addEventListener('click', async ()=>{
   const btn=document.getElementById('modalAdd'); btn.disabled=true;
   const full='[P'+NEWP+']['+NEWC+'] '+text;
   try{
-    const r=await call({action:'add',task:full,by:'kaitlyn'});
-    if(r.error) throw 0;
-    DATA.tasks.push({id:r.id||('tmp'+Date.now()),added:new Date().toISOString(),task:full,status:'open',doneDate:'',by:'kaitlyn'});
+    const id='T'+Date.now(); // tasks.id has no default — matches the historical format
+    const {error}=await sb.from('tasks').insert({id,task:full,status:'open',added_by:'kaitlyn'});
+    if(error) throw error;
+    DATA.tasks.push({id,added:new Date().toISOString(),task:full,status:'open',doneDate:'',by:'kaitlyn'});
     inp.value=''; overlay.classList.remove('show'); TAB='todo';
     document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('active',x.dataset.tab==='todo'));
     draw(); toast('Added to your list.');
@@ -673,8 +713,58 @@ document.getElementById('autoCopy').addEventListener('click',async()=>{
   }
 });
 
-refresh();
-setInterval(refresh, 5*60*1000);
+// ----- passcode gate (styled with the page's own tokens) -----
+const GATE_CSS='#pcGate{position:fixed;inset:0;background:var(--cream);display:flex;align-items:center;justify-content:center;padding:24px;z-index:100}'
++'#pcGate .pcCard{background:var(--card);border-radius:14px;padding:28px 26px;box-shadow:0 2px 10px rgba(47,82,51,.08);max-width:340px;width:100%;text-align:center}'
++'#pcGate h2{font-size:16px;color:var(--sage-d);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}'
++'#pcGate p{color:var(--muted);font-size:13px;margin-bottom:16px}'
++'#pcGate input{width:100%;font-family:inherit;font-size:16px;padding:11px 12px;border:1px solid #d8e0d8;border-radius:10px;background:#fdfcf9;text-align:center;letter-spacing:2px}'
++'#pcGate button{font-family:inherit;background:var(--sage-d);color:#fff;border:none;border-radius:20px;padding:10px 28px;font-size:14px;letter-spacing:1px;cursor:pointer;margin-top:14px}'
++'#pcGate button:disabled{opacity:.5}'
++'#pcErr{color:var(--rose);font-size:13px;margin-top:12px;min-height:17px}';
+function showGate(){
+  const st=document.createElement('style'); st.textContent=GATE_CSS; document.head.appendChild(st);
+  const g=document.createElement('div'); g.id='pcGate';
+  g.innerHTML='<div class="pcCard"><h2>Business Hub</h2><p>Enter your passcode to continue.</p>'
+    +'<input type="password" id="pcInput" autocomplete="current-password" placeholder="Passcode">'
+    +'<div id="pcErr"></div><button id="pcGo">Unlock</button></div>';
+  document.body.appendChild(g);
+  const inp=g.querySelector('#pcInput'), btn=g.querySelector('#pcGo'), err=g.querySelector('#pcErr');
+  const go=async()=>{
+    if(!inp.value) { inp.focus(); return; }
+    btn.disabled=true; err.textContent='';
+    try{
+      const {error}=await sb.auth.signInWithPassword({email:HUB_EMAIL,password:inp.value});
+      if(error) throw error;
+      inp.value=''; g.remove(); st.remove(); start();
+    }catch(e){ err.textContent='That passcode didn’t work.'; inp.value=''; inp.focus(); }
+    btn.disabled=false;
+  };
+  btn.addEventListener('click',go);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
+  setTimeout(()=>inp.focus(),50);
+}
+function start(){
+  refresh();
+  setInterval(refresh, 5*60*1000);
+}
+// no visible sign-out (it would disturb the header) — available from the console
+window.mlkSignOut=()=>sb&&sb.auth.signOut().then(()=>location.reload());
+async function boot(){
+  try{
+    const m=await import(SB_CDN);
+    sb=m.createClient(SB_URL,SB_KEY,{db:{schema:'mlk'}});
+  }catch(e){
+    const st=document.getElementById('status');
+    st.className='error';
+    st.textContent='Couldn’t load the list — check your connection and refresh.';
+    return;
+  }
+  let session=null;
+  try{ session=(await sb.auth.getSession()).data.session; }catch(e){}
+  if(session) start(); else showGate();
+}
+boot();
 </script>
 </body>
 </html>
