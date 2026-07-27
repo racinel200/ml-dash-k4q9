@@ -735,16 +735,44 @@ async function drivePublish(id){
     {method:'POST',headers:{Authorization:'Bearer '+GTOKEN,'Content-Type':'application/json'},
      body:JSON.stringify({role:'reader',type:'anyone'})});
 }
-// prompt=consent here, deliberately: this path runs when the token was refused,
-// which includes "signed in before drive.file existed on the client". Without the
-// forced prompt Google can hand back the same scope-less token and we'd loop.
+// prompt=consent, deliberately: this runs when Drive access is missing, which
+// includes "signed in before drive.file was on the client". Without the forced
+// prompt Google hands back the same scope-less token.
+// NEVER called automatically — only from a button the user taps. An automatic
+// version of this looped: fail -> redirect -> consent -> fail -> redirect.
 async function reauth(){
-  sessionStorage.setItem('mlk-reauth','1');
   try{
     await sb.auth.signInWithOAuth({provider:'google',options:{
       redirectTo: location.origin+location.pathname, scopes: GOOGLE_SCOPES,
       queryParams:{ prompt:'consent' }}});
   }catch(e){ toast('Couldn’t reach Google — try again in a moment.'); }
+}
+// Does the Google token actually carry drive.file? A token can come back looking
+// fine and simply not include the scope, and Drive then answers 403 on every
+// upload. Ask Google directly instead of finding out one failure at a time.
+let DRIVE_OK=null;
+async function checkDriveScope(){
+  if(!GTOKEN){ DRIVE_OK=false; showDriveNotice(); return; }
+  try{
+    const r=await fetch('https://oauth2.googleapis.com/tokeninfo?access_token='+encodeURIComponent(GTOKEN));
+    const j=r.ok?await r.json():{};
+    DRIVE_OK=String(j.scope||'').indexOf('drive.file')>=0;
+    try{console.log('[hub] google scopes:',j.scope||'(none)');}catch(_){}
+  }catch(e){ DRIVE_OK=false; }
+  showDriveNotice();
+}
+// One quiet line plus a button. Photos still send either way — they just land in
+// the backup spot until Drive is sorted out, which is invisible to Kaitlyn.
+function showDriveNotice(){
+  const host=document.getElementById('upstatus'); if(!host) return;
+  const old=document.getElementById('drivefix'); if(old) old.remove();
+  if(DRIVE_OK!==false) return;
+  const d=document.createElement('div'); d.id='drivefix';
+  d.style.cssText='font-size:12px;color:var(--muted);margin-top:10px';
+  d.innerHTML='Photos are saving to the backup spot right now. '
+    +'<button type="button" id="drivego" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--sage-d);text-decoration:underline;cursor:pointer">Reconnect Google</button>';
+  host.parentNode.appendChild(d);
+  d.querySelector('#drivego').addEventListener('click',reauth);
 }
 const upBtn=document.getElementById('upbtn'), upInput=document.getElementById('upinput'), upStatus=document.getElementById('upstatus');
 upBtn.addEventListener('click',()=>upInput.click());
@@ -753,7 +781,15 @@ upInput.addEventListener('change', async ()=>{
   const capBox=document.getElementById('upcap');
   const caption=capBox.value.trim()||null;
   upBtn.disabled=true;
-  let ok=0, failed=0, expired=false;
+  let ok=0, failed=0, droppedToBucket=false;
+  // Storage bucket. Always available, always publishable — the safety net.
+  async function toBucket(p,day,base){
+    const path=day+'/'+base;
+    const up=await sb.storage.from('hub-uploads').upload(path,p.blob,{contentType:p.type,upsert:false});
+    if(up.error) throw up.error;
+    const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
+    return {ref:path, publicUrl:(pub&&pub.data&&pub.data.publicUrl)||''};
+  }
   for(let i=0;i<files.length;i++){
     upStatus.textContent='Sending '+(i+1)+' of '+files.length+'…';
     try{
@@ -761,31 +797,29 @@ upInput.addEventListener('change', async ()=>{
       const d=new Date();
       const day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
       const base=day+'-'+d.getTime()+'-'+i+'.'+p.ext;
-      let ref='', publicUrl='';
-      if(GTOKEN){
-        const f=await driveUpload(p.blob,base,p.type);
-        ref=f.id;
-        if(PUBLISH_UPLOADS&&p.kind==='photo'){
-          try{ await drivePublish(f.id); publicUrl='https://drive.google.com/thumbnail?id='+f.id+'&sz=w1600'; }
-          catch(_){ publicUrl=''; }
+      let out=null;
+      if(GTOKEN&&DRIVE_OK){
+        try{
+          const f=await driveUpload(p.blob,base,p.type);
+          out={ref:f.id, publicUrl:''};
+          if(PUBLISH_UPLOADS&&p.kind==='photo'){
+            try{ await drivePublish(f.id); out.publicUrl='https://drive.google.com/thumbnail?id='+f.id+'&sz=w1600'; }
+            catch(_){}
+          }
+        }catch(e){
+          // Drive refused. Do NOT abort and do NOT redirect — take the bucket for
+          // this file, stop trying Drive this session, and surface a manual fix.
+          if(e&&(e.code==='EXPIRED'||e.code==='NOAUTH')){ DRIVE_OK=false; droppedToBucket=true; }
+          else { try{console.warn('drive',e&&e.message||e);}catch(_){ } DRIVE_OK=false; droppedToBucket=true; }
         }
-      }else{
-        // Signed in with the passcode, so there is no Google token — fall back to
-        // the storage bucket. Same row shape either way.
-        const path=day+'/'+base;
-        const up=await sb.storage.from('hub-uploads').upload(path,p.blob,{contentType:p.type,upsert:false});
-        if(up.error) throw up.error;
-        ref=path;
-        const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
-        publicUrl=(pub&&pub.data&&pub.data.publicUrl)||'';
       }
-      const ins=await sb.from('uploads').insert({kind:p.kind,path:ref,public_url:publicUrl,caption:caption});
+      if(!out) out=await toBucket(p,day,base);
+      const ins=await sb.from('uploads').insert({kind:p.kind,path:out.ref,public_url:out.publicUrl,caption:caption});
       if(ins.error) throw ins.error;
-      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:publicUrl,caption:caption});
+      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:out.publicUrl,caption:caption});
       ok++;
     }catch(e){
       failed++;
-      if(e&&(e.code==='EXPIRED'||e.code==='NOAUTH')){ expired=true; break; }
       try{console.warn('upload',e&&e.message||e);}catch(_){}
     }
   }
@@ -793,11 +827,7 @@ upInput.addEventListener('change', async ()=>{
   upBtn.disabled=false;
   upStatus.textContent = ok ? (ok+' sent ✓') : 'Photos work best';
   drawUploads();
-  if(expired){
-    toast('Just need you to tap Google once more.');
-    setTimeout(reauth,1200);
-    return;
-  }
+  if(droppedToBucket) showDriveNotice();
   toast(ok?(failed?('Sent '+ok+' — '+failed+' didn’t go through.'):(ok===1?'Got it — thank you!':'Got all '+ok+' — thank you!')):'Couldn’t send those — try again.');
 });
 function drawUploads(){
@@ -915,10 +945,7 @@ function showGate(message){
 function start(){
   refresh();
   setInterval(refresh, 5*60*1000);
-  if(sessionStorage.getItem('mlk-reauth')){
-    sessionStorage.removeItem('mlk-reauth');
-    setTimeout(()=>toast('You’re back in — pick your photos again.'),600);
-  }
+  checkDriveScope();
 }
 async function signOut(){ try{ await sb.auth.signOut(); }catch(e){} location.reload(); }
 window.mlkSignOut=signOut;
