@@ -198,9 +198,9 @@
 
     <div class="panel">
       <h2>Send photos or a video</h2>
-      <p style="font-size:13.5px;color:var(--muted);margin:-4px 0 12px">Your room, your table, a hot-stone setup, a quick clip of you explaining something &mdash; whatever you send here gets used for your posts. No editing needed.</p>
+      <p style="font-size:13.5px;color:var(--muted);margin:-4px 0 12px">Your room, your table, a hot-stone setup, a quick clip of you explaining something &mdash; whatever you send here gets used for your posts. No editing needed. Forms and paperwork are welcome too.</p>
       <input type="text" id="upcap" placeholder="What is it? (optional)" style="width:100%;font-family:inherit;font-size:15px;padding:10px 12px;border:1px solid #d8e0d8;border-radius:10px;background:#fdfcf9;margin-bottom:10px">
-      <input type="file" id="upinput" accept="image/*,video/*" multiple style="display:none">
+      <input type="file" id="upinput" accept="image/*,video/*,.pdf,.doc,.docx,.heic" multiple style="display:none">
       <div class="sendrow">
         <small id="upstatus">Photos work best</small>
         <button class="send" id="upbtn">Choose photos</button>
@@ -263,8 +263,18 @@
 const SB_URL='https://wopiuwndpuxzywtchbtt.supabase.co';
 const SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvcGl1d25kcHV4enl3dGNoYnR0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ5NDQ4ODksImV4cCI6MjEwMDUyMDg4OX0.t5rJOiyRGwHODP30KgYJNBK9du7TfldiRwi1oGve5v0';
 const SB_CDN='https://esm.sh/@supabase/supabase-js@2';
-const HUB_EMAIL='hub@massageandlymphatic.com';
-let sb=null;
+const HUB_EMAIL='hub@massageandlymphatic.com';        // legacy shared passcode account
+// Who may open this page. Mirrors mlk.hub_emails, which is what the database
+// actually enforces — this copy only decides whether to show the gate.
+const ALLOWED_EMAILS=['kaitlyn@massageandlymphatic.com','racinel200@gmail.com',HUB_EMAIL];
+// Google sign-in also buys the Drive token the upload panel needs. drive.file is
+// the narrow scope: this page can only touch files it created itself.
+const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file';
+const DRIVE_FOLDER='1U58E9v35DCAcGsz0kMtk6E1pNVwr6hw0';   // Kaitlyn's "Business Hub" folder
+// Uploaded PHOTOS get link-sharing so Instagram can fetch them. Set false to keep
+// every upload private (the daily post then falls back to the old photo library).
+const PUBLISH_UPLOADS=true;
+let sb=null, GTOKEN=null;
 // one-off warning per failing loader, surfaced through the existing toast
 const WARNED={};
 function warn(what,e){ if(WARNED[what]) return; WARNED[what]=1; try{console.warn(what,e&&e.message||e);}catch(_){} toast('Couldn’t load '+what+'.'); }
@@ -518,7 +528,10 @@ function draw(){
     ?'<h2 style="font-size:13px;margin-bottom:6px">Recent notes</h2>'+myNotes.map(n=>
       `<div class="note">${esc(n.note)}<div class="meta">${fmtDT(n.ts)}</div></div>`).join('')
     :'';
-  document.getElementById('footer').textContent='Loaded '+new Date().toLocaleString();
+  const foot=document.getElementById('footer');
+  foot.innerHTML='Loaded '+esc(new Date().toLocaleString())
+    +' · <button type="button" id="signout" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:inherit;text-decoration:underline;cursor:pointer">Sign out</button>';
+  foot.querySelector('#signout').addEventListener('click',signOut);
 }
 function setCat(c){CAT=c;draw();}
 
@@ -700,6 +713,39 @@ async function prepUpload(file){
     return {blob:file,ext:(String(file.name).split('.').pop()||'jpg').toLowerCase(),type:file.type||'image/jpeg',kind:'photo'};
   }finally{ URL.revokeObjectURL(url); }
 }
+// Google's multipart upload wants multipart/related, not the multipart/form-data
+// a FormData would produce — so the body is assembled by hand.
+async function driveUpload(blob,name,mime){
+  if(!GTOKEN) { const e=new Error('no-google-token'); e.code='NOAUTH'; throw e; }
+  const b='mlk'+Math.random().toString(36).slice(2);
+  const head='--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
+    +JSON.stringify({name:name,parents:[DRIVE_FOLDER]})
+    +'\r\n--'+b+'\r\nContent-Type: '+mime+'\r\n\r\n';
+  const body=new Blob([head,blob,'\r\n--'+b+'--'],{type:'multipart/related; boundary='+b});
+  const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name',
+    {method:'POST',headers:{Authorization:'Bearer '+GTOKEN},body:body});
+  if(r.status===401||r.status===403){ const e=new Error('google-token-expired'); e.code='EXPIRED'; throw e; }
+  if(!r.ok) throw new Error('drive '+r.status);
+  return await r.json();
+}
+// Link-sharing on the single file we just made, so Instagram can fetch it.
+// Nothing else in her folder is touched.
+async function drivePublish(id){
+  await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'/permissions',
+    {method:'POST',headers:{Authorization:'Bearer '+GTOKEN,'Content-Type':'application/json'},
+     body:JSON.stringify({role:'reader',type:'anyone'})});
+}
+// prompt=consent here, deliberately: this path runs when the token was refused,
+// which includes "signed in before drive.file existed on the client". Without the
+// forced prompt Google can hand back the same scope-less token and we'd loop.
+async function reauth(){
+  sessionStorage.setItem('mlk-reauth','1');
+  try{
+    await sb.auth.signInWithOAuth({provider:'google',options:{
+      redirectTo: location.origin+location.pathname, scopes: GOOGLE_SCOPES,
+      queryParams:{ prompt:'consent' }}});
+  }catch(e){ toast('Couldn’t reach Google — try again in a moment.'); }
+}
 const upBtn=document.getElementById('upbtn'), upInput=document.getElementById('upinput'), upStatus=document.getElementById('upstatus');
 upBtn.addEventListener('click',()=>upInput.click());
 upInput.addEventListener('change', async ()=>{
@@ -707,29 +753,52 @@ upInput.addEventListener('change', async ()=>{
   const capBox=document.getElementById('upcap');
   const caption=capBox.value.trim()||null;
   upBtn.disabled=true;
-  let ok=0, failed=0;
+  let ok=0, failed=0, expired=false;
   for(let i=0;i<files.length;i++){
     upStatus.textContent='Sending '+(i+1)+' of '+files.length+'…';
     try{
       const p=await prepUpload(files[i]);
       const d=new Date();
       const day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-      const path=day+'/'+d.getTime()+'-'+i+'.'+p.ext;
-      const up=await sb.storage.from('hub-uploads').upload(path,p.blob,{contentType:p.type,upsert:false});
-      if(up.error) throw up.error;
-      const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
-      const publicUrl=(pub&&pub.data&&pub.data.publicUrl)||'';
-      const ins=await sb.from('uploads').insert({kind:p.kind,path:path,public_url:publicUrl,caption:caption});
+      const base=day+'-'+d.getTime()+'-'+i+'.'+p.ext;
+      let ref='', publicUrl='';
+      if(GTOKEN){
+        const f=await driveUpload(p.blob,base,p.type);
+        ref=f.id;
+        if(PUBLISH_UPLOADS&&p.kind==='photo'){
+          try{ await drivePublish(f.id); publicUrl='https://drive.google.com/thumbnail?id='+f.id+'&sz=w1600'; }
+          catch(_){ publicUrl=''; }
+        }
+      }else{
+        // Signed in with the passcode, so there is no Google token — fall back to
+        // the storage bucket. Same row shape either way.
+        const path=day+'/'+base;
+        const up=await sb.storage.from('hub-uploads').upload(path,p.blob,{contentType:p.type,upsert:false});
+        if(up.error) throw up.error;
+        ref=path;
+        const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
+        publicUrl=(pub&&pub.data&&pub.data.publicUrl)||'';
+      }
+      const ins=await sb.from('uploads').insert({kind:p.kind,path:ref,public_url:publicUrl,caption:caption});
       if(ins.error) throw ins.error;
       DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:publicUrl,caption:caption});
       ok++;
-    }catch(e){ failed++; try{console.warn('upload',e&&e.message||e);}catch(_){} }
+    }catch(e){
+      failed++;
+      if(e&&(e.code==='EXPIRED'||e.code==='NOAUTH')){ expired=true; break; }
+      try{console.warn('upload',e&&e.message||e);}catch(_){}
+    }
   }
-  upInput.value=''; capBox.value='';
+  upInput.value=''; if(ok) capBox.value='';
   upBtn.disabled=false;
-  upStatus.textContent = ok ? (ok+(ok===1?' sent ✓':' sent ✓')) : 'Photos work best';
-  toast(ok?(failed?('Sent '+ok+' — '+failed+' didn’t go through.'):(ok===1?'Got it — thank you!':'Got all '+ok+' — thank you!')):'Couldn’t send those — try again.');
+  upStatus.textContent = ok ? (ok+' sent ✓') : 'Photos work best';
   drawUploads();
+  if(expired){
+    toast('Just need you to tap Google once more.');
+    setTimeout(reauth,1200);
+    return;
+  }
+  toast(ok?(failed?('Sent '+ok+' — '+failed+' didn’t go through.'):(ok===1?'Got it — thank you!':'Got all '+ok+' — thank you!')):'Couldn’t send those — try again.');
 });
 function drawUploads(){
   const box=document.getElementById('upthumbs'); if(!box) return;
@@ -787,8 +856,13 @@ document.getElementById('autoCopy').addEventListener('click',async()=>{
   }
 });
 
-// ----- passcode gate (styled with the page's own tokens) -----
+// ----- sign-in gate: Google first, passcode kept as a fallback -----
 const GATE_CSS='#pcGate{position:fixed;inset:0;background:var(--cream);display:flex;align-items:center;justify-content:center;padding:24px;z-index:100}'
++'#pcGate .gbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;font-family:inherit;background:#fff;color:#3c4043;border:1px solid #dadce0;border-radius:22px;padding:11px 16px;font-size:15px;letter-spacing:0;cursor:pointer;margin-top:4px}'
++'#pcGate .gbtn:hover{background:#f7f8f8}'
++'#pcGate .gbtn svg{width:18px;height:18px;flex:none}'
++'#pcGate .alt{display:block;background:none;border:none;color:var(--muted);font-family:inherit;font-size:12.5px;text-decoration:underline;cursor:pointer;margin:16px auto 0;padding:0;letter-spacing:0}'
++'#pcWrap{display:none;margin-top:14px}'
 +'#pcGate .pcCard{background:var(--card);border-radius:14px;padding:28px 26px;box-shadow:0 2px 10px rgba(47,82,51,.08);max-width:340px;width:100%;text-align:center}'
 +'#pcGate h2{font-size:16px;color:var(--sage-d);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}'
 +'#pcGate p{color:var(--muted);font-size:13px;margin-bottom:16px}'
@@ -796,34 +870,63 @@ const GATE_CSS='#pcGate{position:fixed;inset:0;background:var(--cream);display:f
 +'#pcGate button{font-family:inherit;background:var(--sage-d);color:#fff;border:none;border-radius:20px;padding:10px 28px;font-size:14px;letter-spacing:1px;cursor:pointer;margin-top:14px}'
 +'#pcGate button:disabled{opacity:.5}'
 +'#pcErr{color:var(--rose);font-size:13px;margin-top:12px;min-height:17px}';
-function showGate(){
+const GLOGO='<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+function showGate(message){
   const st=document.createElement('style'); st.textContent=GATE_CSS; document.head.appendChild(st);
   const g=document.createElement('div'); g.id='pcGate';
-  g.innerHTML='<div class="pcCard"><h2>Business Hub</h2><p>Enter your passcode to continue.</p>'
+  g.innerHTML='<div class="pcCard"><h2>Business Hub</h2><p>'+esc(message||'Sign in to continue.')+'</p>'
+    +'<button class="gbtn" id="gGo">'+GLOGO+'<span>Continue with Google</span></button>'
+    +'<div id="pcErr"></div>'
+    +'<button type="button" class="alt" id="pcShow">Use the passcode instead</button>'
+    +'<div id="pcWrap">'
     +'<input type="password" id="pcInput" autocomplete="current-password" placeholder="Passcode">'
-    +'<div id="pcErr"></div><button id="pcGo">Unlock</button></div>';
+    +'<button id="pcGo">Unlock</button></div></div>';
   document.body.appendChild(g);
   const inp=g.querySelector('#pcInput'), btn=g.querySelector('#pcGo'), err=g.querySelector('#pcErr');
+  const clear=()=>{ g.remove(); st.remove(); };
+  g.querySelector('#gGo').addEventListener('click', async ()=>{
+    err.textContent='';
+    try{
+      const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{
+        redirectTo: location.origin+location.pathname,
+        scopes: GOOGLE_SCOPES
+      }});
+      if(error) throw error;
+    }catch(e){ err.textContent='Couldn’t open Google — check your connection and try again.'; }
+  });
+  g.querySelector('#pcShow').addEventListener('click',()=>{
+    g.querySelector('#pcWrap').style.display='block';
+    g.querySelector('#pcShow').style.display='none';
+    setTimeout(()=>inp.focus(),50);
+  });
   const go=async()=>{
     if(!inp.value) { inp.focus(); return; }
     btn.disabled=true; err.textContent='';
     try{
       const {error}=await sb.auth.signInWithPassword({email:HUB_EMAIL,password:inp.value});
       if(error) throw error;
-      inp.value=''; g.remove(); st.remove(); start();
+      inp.value=''; clear(); start();
     }catch(e){ err.textContent='That passcode didn’t work.'; inp.value=''; inp.focus(); }
     btn.disabled=false;
   };
   btn.addEventListener('click',go);
   inp.addEventListener('keydown',e=>{ if(e.key==='Enter') go(); });
-  setTimeout(()=>inp.focus(),50);
 }
 function start(){
   refresh();
   setInterval(refresh, 5*60*1000);
+  if(sessionStorage.getItem('mlk-reauth')){
+    sessionStorage.removeItem('mlk-reauth');
+    setTimeout(()=>toast('You’re back in — pick your photos again.'),600);
+  }
 }
-// no visible sign-out (it would disturb the header) — available from the console
-window.mlkSignOut=()=>sb&&sb.auth.signOut().then(()=>location.reload());
+async function signOut(){ try{ await sb.auth.signOut(); }catch(e){} location.reload(); }
+window.mlkSignOut=signOut;
+// Every GitHub Pages site on this account shares one origin, so it shares one
+// localStorage — and therefore one Supabase session. Checking only "is there a
+// session" let a login from another site through, and the allow-list then blocked
+// every read, so the Hub rendered empty with no gate. Check WHOSE session it is.
+const allowed=e=>!!e && ALLOWED_EMAILS.indexOf(String(e).toLowerCase())>=0;
 async function boot(){
   try{
     const m=await import(SB_CDN);
@@ -834,9 +937,17 @@ async function boot(){
     st.textContent='Couldn’t load the list — check your connection and refresh.';
     return;
   }
+  sb.auth.onAuthStateChange((ev,s)=>{ if(s&&s.provider_token) GTOKEN=s.provider_token; });
   let session=null;
   try{ session=(await sb.auth.getSession()).data.session; }catch(e){}
-  if(session) start(); else showGate();
+  if(session&&session.provider_token) GTOKEN=session.provider_token;
+  if(!session){ showGate(); return; }
+  if(!allowed(session.user&&session.user.email)){
+    await sb.auth.signOut();
+    showGate('That account doesn’t have access to this page. Try the one you use for the business.');
+    return;
+  }
+  start();
 }
 boot();
 </script>
