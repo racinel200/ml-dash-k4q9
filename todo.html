@@ -195,6 +195,18 @@
       </div>
       <div id="notes" style="margin-top:16px"></div>
     </div>
+
+    <div class="panel">
+      <h2>Send photos or a video</h2>
+      <p style="font-size:13.5px;color:var(--muted);margin:-4px 0 12px">Your room, your table, a hot-stone setup, a quick clip of you explaining something &mdash; whatever you send here gets used for your posts. No editing needed.</p>
+      <input type="text" id="upcap" placeholder="What is it? (optional)" style="width:100%;font-family:inherit;font-size:15px;padding:10px 12px;border:1px solid #d8e0d8;border-radius:10px;background:#fdfcf9;margin-bottom:10px">
+      <input type="file" id="upinput" accept="image/*,video/*" multiple style="display:none">
+      <div class="sendrow">
+        <small id="upstatus">Photos work best</small>
+        <button class="send" id="upbtn">Choose photos</button>
+      </div>
+      <div id="upthumbs" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px"></div>
+    </div>
     </div>
    </div>
 
@@ -304,7 +316,7 @@ function claudeUrl(t){
     .replace(/\{category\}/g,t.cat)
     .replace(/\{priority\}/g,PRIO_LABEL[t.p].toLowerCase()));
 }
-let DATA={tasks:[],notes:[]};
+let DATA={tasks:[],notes:[],uploads:[]};
 let TAB='todo', CAT='All', QUICK=false;
 let AUTOS={};
 
@@ -595,12 +607,13 @@ async function loadToday(){
 // renderers take slice(-N) to get the newest rows.
 async function loadList(){
   const soft=(p,what)=>p.catch(e=>{warn(what,e);return [];});
-  const [tasks,payloads,acts,updates,notes]=await Promise.all([
+  const [tasks,payloads,acts,updates,notes,uploads]=await Promise.all([
     fetchAll('tasks',['added_at','id']),
     soft(fetchAll('v_current_payloads',['created_at']),'automations'),
     soft(fetchAll('activity',['created_at']),'the activity log'),
     soft(fetchAll('daily_updates',['published_at']),'the daily update'),
-    soft(fetchAll('notes',['created_at']),'your notes')
+    soft(fetchAll('notes',['created_at']),'your notes'),
+    soft(fetchAll('uploads',['created_at']),'your photos')
   ]);
   const T=tasks.map(t=>({
     id:String(t.id), added:t.added_at||'', task:t.task==null?'':String(t.task),
@@ -615,7 +628,7 @@ async function loadList(){
     minutes:p.minutes, url:p.url||'', content:p.content||''
   })}));
   N.sort((a,b)=>String(a.ts||'').localeCompare(String(b.ts||'')));
-  return {tasks:T,notes:N};
+  return {tasks:T,notes:N,uploads:uploads||[]};
 }
 async function refresh(){
   try{
@@ -625,6 +638,7 @@ async function refresh(){
     document.getElementById('status').style.display='none';
     document.getElementById('content').style.display='block';
     draw();
+    drawUploads();
     persistSeen();
   }catch(e){
     const st=document.getElementById('status');
@@ -666,6 +680,66 @@ document.getElementById('sendbtn').addEventListener('click', async ()=>{
   }catch(e){ toast('Couldn’t send — try again.'); }
   btn.disabled=false;
 });
+// ---- photos & video: straight into storage, logged in mlk.uploads ----
+// Images are re-encoded to JPEG in the browser so what arrives is always
+// postable (an iPhone HEIC or a 12MP original would not be).
+async function prepUpload(file){
+  const isImg=/^image\//.test(file.type||'');
+  if(!isImg) return {blob:file,ext:(String(file.name).split('.').pop()||'mp4').toLowerCase(),type:file.type||'video/mp4',kind:'video'};
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url;});
+    const max=1440, scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+    const w=Math.max(1,Math.round(img.naturalWidth*scale)), h=Math.max(1,Math.round(img.naturalHeight*scale));
+    const c=document.createElement('canvas'); c.width=w; c.height=h;
+    c.getContext('2d').drawImage(img,0,0,w,h);
+    const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.9));
+    if(!blob) throw new Error('encode failed');
+    return {blob,ext:'jpg',type:'image/jpeg',kind:'photo'};
+  }catch(e){
+    return {blob:file,ext:(String(file.name).split('.').pop()||'jpg').toLowerCase(),type:file.type||'image/jpeg',kind:'photo'};
+  }finally{ URL.revokeObjectURL(url); }
+}
+const upBtn=document.getElementById('upbtn'), upInput=document.getElementById('upinput'), upStatus=document.getElementById('upstatus');
+upBtn.addEventListener('click',()=>upInput.click());
+upInput.addEventListener('change', async ()=>{
+  const files=Array.from(upInput.files||[]); if(!files.length) return;
+  const capBox=document.getElementById('upcap');
+  const caption=capBox.value.trim()||null;
+  upBtn.disabled=true;
+  let ok=0, failed=0;
+  for(let i=0;i<files.length;i++){
+    upStatus.textContent='Sending '+(i+1)+' of '+files.length+'…';
+    try{
+      const p=await prepUpload(files[i]);
+      const d=new Date();
+      const day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      const path=day+'/'+d.getTime()+'-'+i+'.'+p.ext;
+      const up=await sb.storage.from('hub-uploads').upload(path,p.blob,{contentType:p.type,upsert:false});
+      if(up.error) throw up.error;
+      const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
+      const publicUrl=(pub&&pub.data&&pub.data.publicUrl)||'';
+      const ins=await sb.from('uploads').insert({kind:p.kind,path:path,public_url:publicUrl,caption:caption});
+      if(ins.error) throw ins.error;
+      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:publicUrl,caption:caption});
+      ok++;
+    }catch(e){ failed++; try{console.warn('upload',e&&e.message||e);}catch(_){} }
+  }
+  upInput.value=''; capBox.value='';
+  upBtn.disabled=false;
+  upStatus.textContent = ok ? (ok+(ok===1?' sent ✓':' sent ✓')) : 'Photos work best';
+  toast(ok?(failed?('Sent '+ok+' — '+failed+' didn’t go through.'):(ok===1?'Got it — thank you!':'Got all '+ok+' — thank you!')):'Couldn’t send those — try again.');
+  drawUploads();
+});
+function drawUploads(){
+  const box=document.getElementById('upthumbs'); if(!box) return;
+  const recent=(DATA.uploads||[]).slice(-8).reverse();
+  box.innerHTML=recent.map(u=>{
+    const t=fmtDate(u.created_at);
+    if(u.kind==='photo'&&u.public_url) return '<img src="'+escA(u.public_url)+'" alt="'+escA(u.caption||t)+'" title="'+escA((u.caption?u.caption+' · ':'')+t)+'" style="width:62px;height:62px;object-fit:cover;border-radius:9px;border:1px solid #e2e6df">';
+    return '<div title="'+escA((u.caption?u.caption+' · ':'')+t)+'" style="width:62px;height:62px;border-radius:9px;border:1px solid #e2e6df;background:#f2f0ea;display:flex;align-items:center;justify-content:center;font-size:20px">🎬</div>';
+  }).join('');
+}
 // add-task modal
 const overlay=document.getElementById('overlay');
 let NEWP='2', NEWC='General';
