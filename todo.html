@@ -267,17 +267,15 @@ const HUB_EMAIL='hub@massageandlymphatic.com';        // legacy shared passcode 
 // Who may open this page. Mirrors mlk.hub_emails, which is what the database
 // actually enforces — this copy only decides whether to show the gate.
 const ALLOWED_EMAILS=['kaitlyn@massageandlymphatic.com','racinel200@gmail.com',HUB_EMAIL];
-// Google sign-in also buys the Drive token the upload panel needs. drive.file is
-// the narrow scope: this page can only touch files it created itself.
-const GOOGLE_SCOPES='https://www.googleapis.com/auth/drive.file';
-const DRIVE_FOLDER='1U58E9v35DCAcGsz0kMtk6E1pNVwr6hw0';   // Kaitlyn's "Business Hub" folder
-// Uploaded PHOTOS get link-sharing so Instagram can fetch them. Set false to keep
-// every upload private (the daily post then falls back to the old photo library).
-const PUBLISH_UPLOADS=true;
+// Uploads land in the hub-uploads bucket and stop there. Getting them into
+// Kaitlyn's Drive folder is the scheduled job's problem, not this page's:
+// browser-side Drive upload needs the drive.file scope, and drive.file can only
+// touch files the app itself created — it cannot see a folder Kaitlyn made in the
+// Drive app, so writing into that folder fails however the consent is granted.
 // Shown in the footer. GitHub Pages caches HTML ~10 min and the browser caches it
 // again, so "is this the new build?" is otherwise unanswerable without guessing.
-const BUILD='2026-07-28a';
-let sb=null, GTOKEN=null;
+const BUILD='2026-07-28b';
+let sb=null;
 // one-off warning per failing loader, surfaced through the existing toast
 const WARNED={};
 function warn(what,e){ if(WARNED[what]) return; WARNED[what]=1; try{console.warn(what,e&&e.message||e);}catch(_){} toast('Couldn’t load '+what+'.'); }
@@ -716,67 +714,6 @@ async function prepUpload(file){
     return {blob:file,ext:(String(file.name).split('.').pop()||'jpg').toLowerCase(),type:file.type||'image/jpeg',kind:'photo'};
   }finally{ URL.revokeObjectURL(url); }
 }
-// Google's multipart upload wants multipart/related, not the multipart/form-data
-// a FormData would produce — so the body is assembled by hand.
-async function driveUpload(blob,name,mime){
-  if(!GTOKEN) { const e=new Error('no-google-token'); e.code='NOAUTH'; throw e; }
-  const b='mlk'+Math.random().toString(36).slice(2);
-  const head='--'+b+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'
-    +JSON.stringify({name:name,parents:[DRIVE_FOLDER]})
-    +'\r\n--'+b+'\r\nContent-Type: '+mime+'\r\n\r\n';
-  const body=new Blob([head,blob,'\r\n--'+b+'--'],{type:'multipart/related; boundary='+b});
-  const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name',
-    {method:'POST',headers:{Authorization:'Bearer '+GTOKEN},body:body});
-  if(r.status===401||r.status===403){ const e=new Error('google-token-expired'); e.code='EXPIRED'; throw e; }
-  if(!r.ok) throw new Error('drive '+r.status);
-  return await r.json();
-}
-// Link-sharing on the single file we just made, so Instagram can fetch it.
-// Nothing else in her folder is touched.
-async function drivePublish(id){
-  await fetch('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(id)+'/permissions',
-    {method:'POST',headers:{Authorization:'Bearer '+GTOKEN,'Content-Type':'application/json'},
-     body:JSON.stringify({role:'reader',type:'anyone'})});
-}
-// prompt=consent, deliberately: this runs when Drive access is missing, which
-// includes "signed in before drive.file was on the client". Without the forced
-// prompt Google hands back the same scope-less token.
-// NEVER called automatically — only from a button the user taps. An automatic
-// version of this looped: fail -> redirect -> consent -> fail -> redirect.
-async function reauth(){
-  try{
-    await sb.auth.signInWithOAuth({provider:'google',options:{
-      redirectTo: location.origin+location.pathname, scopes: GOOGLE_SCOPES,
-      queryParams:{ prompt:'consent' }}});
-  }catch(e){ toast('Couldn’t reach Google — try again in a moment.'); }
-}
-// Does the Google token actually carry drive.file? A token can come back looking
-// fine and simply not include the scope, and Drive then answers 403 on every
-// upload. Ask Google directly instead of finding out one failure at a time.
-let DRIVE_OK=null;
-async function checkDriveScope(){
-  if(!GTOKEN){ DRIVE_OK=false; showDriveNotice(); return; }
-  try{
-    const r=await fetch('https://oauth2.googleapis.com/tokeninfo?access_token='+encodeURIComponent(GTOKEN));
-    const j=r.ok?await r.json():{};
-    DRIVE_OK=String(j.scope||'').indexOf('drive.file')>=0;
-    try{console.log('[hub] google scopes:',j.scope||'(none)');}catch(_){}
-  }catch(e){ DRIVE_OK=false; }
-  showDriveNotice();
-}
-// One quiet line plus a button. Photos still send either way — they just land in
-// the backup spot until Drive is sorted out, which is invisible to Kaitlyn.
-function showDriveNotice(){
-  const host=document.getElementById('upstatus'); if(!host) return;
-  const old=document.getElementById('drivefix'); if(old) old.remove();
-  if(DRIVE_OK!==false) return;
-  const d=document.createElement('div'); d.id='drivefix';
-  d.style.cssText='font-size:12px;color:var(--muted);margin-top:10px';
-  d.innerHTML='Photos are saving to the backup spot right now. '
-    +'<button type="button" id="drivego" style="background:none;border:none;padding:0;font-family:inherit;font-size:12px;color:var(--sage-d);text-decoration:underline;cursor:pointer">Reconnect Google</button>';
-  host.parentNode.appendChild(d);
-  d.querySelector('#drivego').addEventListener('click',reauth);
-}
 const upBtn=document.getElementById('upbtn'), upInput=document.getElementById('upinput'), upStatus=document.getElementById('upstatus');
 upBtn.addEventListener('click',()=>upInput.click());
 upInput.addEventListener('change', async ()=>{
@@ -784,53 +721,28 @@ upInput.addEventListener('change', async ()=>{
   const capBox=document.getElementById('upcap');
   const caption=capBox.value.trim()||null;
   upBtn.disabled=true;
-  let ok=0, failed=0, droppedToBucket=false;
-  // Storage bucket. Always available, always publishable — the safety net.
-  async function toBucket(p,day,base){
-    const path=day+'/'+base;
-    const up=await sb.storage.from('hub-uploads').upload(path,p.blob,{contentType:p.type,upsert:false});
-    if(up.error) throw up.error;
-    const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
-    return {ref:path, publicUrl:(pub&&pub.data&&pub.data.publicUrl)||''};
-  }
+  let ok=0, failed=0;
   for(let i=0;i<files.length;i++){
-    upStatus.textContent='Sending '+(i+1)+' of '+files.length+'…';
+    upStatus.textContent='Sending '+(i+1)+' of '+files.length+'\u2026';
     try{
       const p=await prepUpload(files[i]);
       const d=new Date();
       const day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-      const base=day+'-'+d.getTime()+'-'+i+'.'+p.ext;
-      let out=null;
-      if(GTOKEN&&DRIVE_OK){
-        try{
-          const f=await driveUpload(p.blob,base,p.type);
-          out={ref:f.id, publicUrl:''};
-          if(PUBLISH_UPLOADS&&p.kind==='photo'){
-            try{ await drivePublish(f.id); out.publicUrl='https://drive.google.com/thumbnail?id='+f.id+'&sz=w1600'; }
-            catch(_){}
-          }
-        }catch(e){
-          // Drive refused. Do NOT abort and do NOT redirect — take the bucket for
-          // this file, stop trying Drive this session, and surface a manual fix.
-          if(e&&(e.code==='EXPIRED'||e.code==='NOAUTH')){ DRIVE_OK=false; droppedToBucket=true; }
-          else { try{console.warn('drive',e&&e.message||e);}catch(_){ } DRIVE_OK=false; droppedToBucket=true; }
-        }
-      }
-      if(!out) out=await toBucket(p,day,base);
-      const ins=await sb.from('uploads').insert({kind:p.kind,path:out.ref,public_url:out.publicUrl,caption:caption});
+      const path=day+'/'+day+'-'+d.getTime()+'-'+i+'.'+p.ext;
+      const up=await sb.storage.from('hub-uploads').upload(path,p.blob,{contentType:p.type,upsert:false});
+      if(up.error) throw up.error;
+      const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
+      const publicUrl=(pub&&pub.data&&pub.data.publicUrl)||'';
+      const ins=await sb.from('uploads').insert({kind:p.kind,path:path,public_url:publicUrl,caption:caption});
       if(ins.error) throw ins.error;
-      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:out.publicUrl,caption:caption});
+      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:publicUrl,caption:caption});
       ok++;
-    }catch(e){
-      failed++;
-      try{console.warn('upload',e&&e.message||e);}catch(_){}
-    }
+    }catch(e){ failed++; try{console.warn('upload',e&&e.message||e);}catch(_){} }
   }
   upInput.value=''; if(ok) capBox.value='';
   upBtn.disabled=false;
-  upStatus.textContent = ok ? (ok+' sent ✓') : 'Photos work best';
+  upStatus.textContent = ok ? (ok+' sent \u2713') : 'Photos work best';
   drawUploads();
-  if(droppedToBucket) showDriveNotice();
   toast(ok?(failed?('Sent '+ok+' — '+failed+' didn’t go through.'):(ok===1?'Got it — thank you!':'Got all '+ok+' — thank you!')):'Couldn’t send those — try again.');
 });
 function drawUploads(){
@@ -921,8 +833,7 @@ function showGate(message){
     err.textContent='';
     try{
       const {error}=await sb.auth.signInWithOAuth({provider:'google',options:{
-        redirectTo: location.origin+location.pathname,
-        scopes: GOOGLE_SCOPES
+        redirectTo: location.origin+location.pathname
       }});
       if(error) throw error;
     }catch(e){ err.textContent='Couldn’t open Google — check your connection and try again.'; }
@@ -948,7 +859,6 @@ function showGate(message){
 function start(){
   refresh();
   setInterval(refresh, 5*60*1000);
-  checkDriveScope();
 }
 async function signOut(){ try{ await sb.auth.signOut(); }catch(e){} location.reload(); }
 window.mlkSignOut=signOut;
@@ -967,10 +877,8 @@ async function boot(){
     st.textContent='Couldn’t load the list — check your connection and refresh.';
     return;
   }
-  sb.auth.onAuthStateChange((ev,s)=>{ if(s&&s.provider_token) GTOKEN=s.provider_token; });
   let session=null;
   try{ session=(await sb.auth.getSession()).data.session; }catch(e){}
-  if(session&&session.provider_token) GTOKEN=session.provider_token;
   if(!session){ showGate(); return; }
   if(!allowed(session.user&&session.user.email)){
     await sb.auth.signOut();
