@@ -201,6 +201,10 @@
       <h2>Send photos, video or files</h2>
       <p style="font-size:13.5px;color:var(--muted);margin:-4px 0 12px">Your room, your table, a hot-stone setup, a quick clip of you explaining something &mdash; photos get used for your posts. Anything else is welcome too: intake forms, receipts, insurance paperwork, a scan, a PDF. It all files itself into your <a href="https://drive.google.com/drive/folders/1U58E9v35DCAcGsz0kMtk6E1pNVwr6hw0" target="_blank" rel="noopener" style="color:var(--sage-d)">Business Files folder</a>.</p>
       <input type="text" id="upcap" placeholder="What is it? (optional)" style="width:100%;font-family:inherit;font-size:15px;padding:10px 12px;border:1px solid #d8e0d8;border-radius:10px;background:#fdfcf9;margin-bottom:10px">
+      <label for="upig" style="display:flex;align-items:flex-start;gap:9px;font-size:14px;line-height:1.45;cursor:pointer;margin-bottom:2px">
+        <input type="checkbox" id="upig" checked style="width:19px;height:19px;margin-top:1px;flex:none;accent-color:var(--sage-d)">
+        <span>Use these for Instagram<br><small style="color:var(--muted);font-size:12.5px">Leave this ticked and I&rsquo;ll post them for you. Untick it for anything private or for paperwork &mdash; those get filed and never posted.</small></span>
+      </label>
       <input type="file" id="upinput" multiple style="display:none">
       <div class="sendrow">
         <small id="upstatus">Anything you send lands in your folder</small>
@@ -275,7 +279,7 @@ const ALLOWED_EMAILS=['kaitlyn@massageandlymphatic.com','racinel200@gmail.com',H
 // Drive app, so writing into that folder fails however the consent is granted.
 // Shown in the footer. GitHub Pages caches HTML ~10 min and the browser caches it
 // again, so "is this the new build?" is otherwise unanswerable without guessing.
-const BUILD='2026-07-28c';
+const BUILD='2026-07-28d';
 let sb=null;
 // one-off warning per failing loader, surfaced through the existing toast
 const WARNED={};
@@ -725,6 +729,9 @@ upInput.addEventListener('change', async ()=>{
   const files=Array.from(upInput.files||[]); if(!files.length) return;
   const capBox=document.getElementById('upcap');
   const caption=capBox.value.trim()||null;
+  // Only photos can be posted, so the tick is meaningless on a PDF or a video.
+  const igBox=document.getElementById('upig');
+  const wantsIG=!!(igBox&&igBox.checked);
   upBtn.disabled=true;
   let ok=0, failed=0;
   for(let i=0;i<files.length;i++){
@@ -738,13 +745,14 @@ upInput.addEventListener('change', async ()=>{
       if(up.error) throw up.error;
       const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
       const publicUrl=(pub&&pub.data&&pub.data.publicUrl)||'';
-      const ins=await sb.from('uploads').insert({kind:p.kind,path:path,public_url:publicUrl,caption:caption,original_name:p.name||null});
+      const forIG=wantsIG&&p.kind==='photo';
+      const ins=await sb.from('uploads').insert({kind:p.kind,path:path,public_url:publicUrl,caption:caption,original_name:p.name||null,for_instagram:forIG});
       if(ins.error) throw ins.error;
-      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:publicUrl,caption:caption,original_name:p.name||null});
+      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:publicUrl,caption:caption,original_name:p.name||null,for_instagram:forIG});
       ok++;
     }catch(e){ failed++; try{console.warn('upload',e&&e.message||e);}catch(_){} }
   }
-  upInput.value=''; if(ok) capBox.value='';
+  upInput.value=''; if(ok){ capBox.value=''; if(igBox) igBox.checked=true; }
   upBtn.disabled=false;
   upStatus.textContent = ok ? (ok+' sent \u2713') : 'Photos work best';
   drawUploads();
@@ -755,7 +763,7 @@ function drawUploads(){
   const recent=(DATA.uploads||[]).slice(-8).reverse();
   box.innerHTML=recent.map(u=>{
     const t=fmtDate(u.created_at);
-    if(u.kind==='photo'&&u.public_url) return '<img src="'+escA(u.public_url)+'" alt="'+escA(u.caption||t)+'" title="'+escA((u.caption?u.caption+' · ':'')+t)+'" style="width:62px;height:62px;object-fit:cover;border-radius:9px;border:1px solid #e2e6df">';
+    if(u.kind==='photo'&&u.public_url) return '<img src="'+escA(u.public_url)+'" alt="'+escA(u.caption||t)+'" title="'+escA((u.caption?u.caption+' · ':'')+t)+'" style="width:62px;height:62px;object-fit:cover;border-radius:9px;border:1px solid '+(u.for_instagram?'var(--sage-d);box-shadow:0 0 0 2px #e9f2e9':'#e2e6df')+'">';
     const label=u.caption||u.original_name||'';
     return '<div title="'+escA((label?label+' · ':'')+t)+'" style="width:62px;height:62px;border-radius:9px;border:1px solid #e2e6df;background:#f2f0ea;display:flex;align-items:center;justify-content:center;font-size:20px">'+(u.kind==='video'?'🎬':'📄')+'</div>';
   }).join('');
