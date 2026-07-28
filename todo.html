@@ -145,6 +145,7 @@
     <a href="https://lovable.dev/projects/55c30d37-ede1-4af7-a989-68d165eaa94c" target="_blank" rel="noopener">&#9998; Edit Website</a>
     <a href="https://mail.google.com" target="_blank" rel="noopener">&#9993; Gmail</a>
     <a href="https://www.instagram.com/massageandlymphatic/" target="_blank" rel="noopener">&#9673; Instagram</a>
+    <a href="https://drive.google.com/drive/folders/1U58E9v35DCAcGsz0kMtk6E1pNVwr6hw0" target="_blank" rel="noopener">&#128193; Business Files</a>
     <a href="https://www.facebook.com/profile.php?id=100063920925687" target="_blank" rel="noopener">&#11041; Facebook</a>
     <a href="https://business.google.com/" target="_blank" rel="noopener">&#9733; Google Business</a>
   </div>
@@ -197,13 +198,13 @@
     </div>
 
     <div class="panel">
-      <h2>Send photos or a video</h2>
-      <p style="font-size:13.5px;color:var(--muted);margin:-4px 0 12px">Your room, your table, a hot-stone setup, a quick clip of you explaining something &mdash; whatever you send here gets used for your posts. No editing needed. Forms and paperwork are welcome too.</p>
+      <h2>Send photos, video or files</h2>
+      <p style="font-size:13.5px;color:var(--muted);margin:-4px 0 12px">Your room, your table, a hot-stone setup, a quick clip of you explaining something &mdash; photos get used for your posts. Anything else is welcome too: intake forms, receipts, insurance paperwork, a scan, a PDF. It all files itself into your <a href="https://drive.google.com/drive/folders/1U58E9v35DCAcGsz0kMtk6E1pNVwr6hw0" target="_blank" rel="noopener" style="color:var(--sage-d)">Business Files folder</a>.</p>
       <input type="text" id="upcap" placeholder="What is it? (optional)" style="width:100%;font-family:inherit;font-size:15px;padding:10px 12px;border:1px solid #d8e0d8;border-radius:10px;background:#fdfcf9;margin-bottom:10px">
-      <input type="file" id="upinput" accept="image/*,video/*,.pdf,.doc,.docx,.heic" multiple style="display:none">
+      <input type="file" id="upinput" multiple style="display:none">
       <div class="sendrow">
-        <small id="upstatus">Photos work best</small>
-        <button class="send" id="upbtn">Choose photos</button>
+        <small id="upstatus">Anything you send lands in your folder</small>
+        <button class="send" id="upbtn">Choose files</button>
       </div>
       <div id="upthumbs" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px"></div>
     </div>
@@ -274,7 +275,7 @@ const ALLOWED_EMAILS=['kaitlyn@massageandlymphatic.com','racinel200@gmail.com',H
 // Drive app, so writing into that folder fails however the consent is granted.
 // Shown in the footer. GitHub Pages caches HTML ~10 min and the browser caches it
 // again, so "is this the new build?" is otherwise unanswerable without guessing.
-const BUILD='2026-07-28b';
+const BUILD='2026-07-28c';
 let sb=null;
 // one-off warning per failing loader, surfaced through the existing toast
 const WARNED={};
@@ -697,9 +698,13 @@ document.getElementById('sendbtn').addEventListener('click', async ()=>{
 // ---- photos & video: straight into storage, logged in mlk.uploads ----
 // Images are re-encoded to JPEG in the browser so what arrives is always
 // postable (an iPhone HEIC or a 12MP original would not be).
+const extOf=n=>{const p=String(n||'').split('.');return p.length>1?p.pop().toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,8):'bin';};
 async function prepUpload(file){
-  const isImg=/^image\//.test(file.type||'');
-  if(!isImg) return {blob:file,ext:(String(file.name).split('.').pop()||'mp4').toLowerCase(),type:file.type||'video/mp4',kind:'video'};
+  const mime=String(file.type||'');
+  const isImg=/^image\//.test(mime);
+  // Anything that isn't an image goes up untouched — video, PDFs, scans, docs.
+  if(!isImg) return {blob:file, ext:extOf(file.name), type:mime||'application/octet-stream',
+                     kind:/^video\//.test(mime)?'video':'file', name:String(file.name||'')};
   const url=URL.createObjectURL(file);
   try{
     const img=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=url;});
@@ -709,9 +714,9 @@ async function prepUpload(file){
     c.getContext('2d').drawImage(img,0,0,w,h);
     const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.9));
     if(!blob) throw new Error('encode failed');
-    return {blob,ext:'jpg',type:'image/jpeg',kind:'photo'};
+    return {blob,ext:'jpg',type:'image/jpeg',kind:'photo',name:String(file.name||'')};
   }catch(e){
-    return {blob:file,ext:(String(file.name).split('.').pop()||'jpg').toLowerCase(),type:file.type||'image/jpeg',kind:'photo'};
+    return {blob:file,ext:extOf(file.name),type:mime||'image/jpeg',kind:'photo',name:String(file.name||'')};
   }finally{ URL.revokeObjectURL(url); }
 }
 const upBtn=document.getElementById('upbtn'), upInput=document.getElementById('upinput'), upStatus=document.getElementById('upstatus');
@@ -733,9 +738,9 @@ upInput.addEventListener('change', async ()=>{
       if(up.error) throw up.error;
       const pub=sb.storage.from('hub-uploads').getPublicUrl(path);
       const publicUrl=(pub&&pub.data&&pub.data.publicUrl)||'';
-      const ins=await sb.from('uploads').insert({kind:p.kind,path:path,public_url:publicUrl,caption:caption});
+      const ins=await sb.from('uploads').insert({kind:p.kind,path:path,public_url:publicUrl,caption:caption,original_name:p.name||null});
       if(ins.error) throw ins.error;
-      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:publicUrl,caption:caption});
+      DATA.uploads.push({created_at:d.toISOString(),kind:p.kind,public_url:publicUrl,caption:caption,original_name:p.name||null});
       ok++;
     }catch(e){ failed++; try{console.warn('upload',e&&e.message||e);}catch(_){} }
   }
@@ -751,7 +756,8 @@ function drawUploads(){
   box.innerHTML=recent.map(u=>{
     const t=fmtDate(u.created_at);
     if(u.kind==='photo'&&u.public_url) return '<img src="'+escA(u.public_url)+'" alt="'+escA(u.caption||t)+'" title="'+escA((u.caption?u.caption+' · ':'')+t)+'" style="width:62px;height:62px;object-fit:cover;border-radius:9px;border:1px solid #e2e6df">';
-    return '<div title="'+escA((u.caption?u.caption+' · ':'')+t)+'" style="width:62px;height:62px;border-radius:9px;border:1px solid #e2e6df;background:#f2f0ea;display:flex;align-items:center;justify-content:center;font-size:20px">🎬</div>';
+    const label=u.caption||u.original_name||'';
+    return '<div title="'+escA((label?label+' · ':'')+t)+'" style="width:62px;height:62px;border-radius:9px;border:1px solid #e2e6df;background:#f2f0ea;display:flex;align-items:center;justify-content:center;font-size:20px">'+(u.kind==='video'?'🎬':'📄')+'</div>';
   }).join('');
 }
 // add-task modal
